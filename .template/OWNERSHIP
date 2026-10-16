@@ -1,0 +1,45 @@
+# .template/OWNERSHIP
+# Maps repository paths to ownership tiers: template | shared | project
+#
+# template: Upstream-owned boilerplate and tooling. Downstream projects avoid editing.
+# shared:   Extension points and config. Upstream updates may require manual merge.
+# project:  Project-owned application code and domain logic. Upstream will not touch.
+
+# Template tier
+.dockerignore template
+.gitignore template
+.golangci.yml template
+Makefile template
+TEMPLATE_VERSION template
+cmd/scaffold/ template
+deployments/ template
+perf/ template
+scripts/ template
+templates/ template
+.template/ template
+internal/platform/ template
+docs/ template
+
+# Shared tier
+go.mod shared
+go.sum shared
+sqlc.yaml shared
+CHANGELOG.md shared
+AGENTS.md shared
+CLAUDE.md shared
+README.md shared
+CODEOWNERS shared
+.env.example shared
+internal/app/ shared
+internal/config/ shared
+db/migrations/ shared
+db/queries/ shared
+api/ shared
+
+# Project tier
+cmd/api/ project
+cmd/worker/ project
+cmd/seed/ project
+internal/users/ project
+internal/orders/ project
+internal/integrations/ project

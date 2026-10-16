@@ -19,7 +19,7 @@ LOADENV = set -a; if [ -f .env ]; then . ./.env; fi; set +a;
 
 .PHONY: help up down migrate migrate-verify sqlc run-api run-worker seed-admin \
 	test test-integration lint arch-check vuln new-feature init strip-examples \
-	template-diff add-module perf
+	template-diff add-module perf scaffold-smoke
 
 help: ## List targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -75,16 +75,16 @@ vuln: ## Scan dependencies with govulncheck
 
 new-feature: ## Scaffold a feature: make new-feature name=billing
 	@test -n "$(name)" || { echo "usage: make new-feature name=<feature>" >&2; exit 1; }
-	@NAME="$(name)" bash scripts/new-feature.sh
+	go run ./cmd/scaffold new-feature --name="$(name)"
 
 init: ## Scaffold a project (once): make init NAME=<app> MODULE=<module> EXAMPLES=keep|strip
-	@NAME="$(NAME)" MODULE="$(MODULE)" EXAMPLES="$(EXAMPLES)" bash scripts/init.sh
+	go run ./cmd/scaffold init --name="$(NAME)" --module="$(MODULE)" --examples="$(EXAMPLES)"
 
 strip-examples: ## Remove example code: make strip-examples CONFIRM=yes
-	@CONFIRM="$(CONFIRM)" bash scripts/strip-examples.sh
+	go run ./cmd/scaffold strip-examples $(if $(filter yes,$(CONFIRM)),--confirm,)
 
 template-diff: ## Show upstream template changes: make template-diff TAG=<version>
-	@TAG="$(TAG)" bash scripts/template-diff.sh
+	go run ./cmd/scaffold template-diff --tag="$(TAG)"
 
 add-module: ## Adopt an opt-in module: make add-module NAME=<module>
 	@test -n "$(NAME)" || { echo "usage: make add-module NAME=<module>" >&2; exit 1; }
@@ -93,3 +93,6 @@ add-module: ## Adopt an opt-in module: make add-module NAME=<module>
 
 perf: ## Run the k6 smoke scenario
 	@$(LOADENV) k6 run -e BASE_URL="$${BASE_URL:-http://localhost:8080}" perf/smoke.js
+ 
+scaffold-smoke: ## Run 4-way scaffold matrix (fresh/gonew x keep/strip)
+	bash scripts/scaffold-smoke.sh

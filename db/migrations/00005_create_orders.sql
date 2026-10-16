@@ -1,3 +1,4 @@
+-- template:example:file orders
 -- +goose Up
 -- This migration belongs to the removable "orders" example.
 CREATE TABLE orders (
