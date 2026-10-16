@@ -10,6 +10,7 @@ import (
 
 	"example.com/app/internal/config"
 	"example.com/app/internal/platform/httpx"
+	"example.com/app/internal/platform/store"
 	"example.com/app/internal/platform/telemetry"
 )
 
@@ -20,7 +21,7 @@ const (
 )
 
 // RunAPI builds the HTTP stack and serves until ctx is cancelled, then drains
-// in-flight requests and flushes telemetry.
+// in-flight requests, closes the database pool, and flushes telemetry.
 func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	prov, err := telemetry.Setup(ctx, telemetry.Options{
 		ServiceName: cfg.ServiceName,
@@ -37,6 +38,12 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		}
 	}()
 
+	pool, err := store.NewPool(ctx, store.PoolConfig{URL: cfg.DatabaseURL})
+	if err != nil {
+		return fmt.Errorf("app: %w", err)
+	}
+	defer pool.Close()
+
 	proxies, err := httpx.ParseTrustedProxies(cfg.TrustedProxies)
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
@@ -48,7 +55,7 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 
 	router := httpx.NewRouter()
 	router.Handle("GET /healthz", httpx.Healthz())
-	router.Handle("GET /readyz", httpx.Readyz(logger, readyTimeout))
+	router.Handle("GET /readyz", httpx.Readyz(logger, readyTimeout, store.Pinger(pool)))
 	router.Handle("GET /metrics", metrics.Handler())
 
 	handler := httpx.Chain(router,

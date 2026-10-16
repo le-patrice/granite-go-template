@@ -22,8 +22,8 @@ Status values: pending, pass, fail.
 | 1 | Skeleton | pass | go build, go vet, golangci-lint config verify, make lint (0 issues), make arch-check (ok) | Adds `internal/platform/doc.go` as a lint anchor |
 | 2.a | Config, telemetry, app/api.go, cmd/api | pass | go vet, make lint (0 issues), make test, fail-fast env check, live API probe | |
 | 2.b | httpx | pass | go vet, make lint (0 issues), make arch-check (ok), make test, /healthz, /readyz, /metrics | |
-| 3.a | Core migrations, queries, sqlc | pending | | |
-| 3.b | Store pool, tx, storetest | pending | | |
+| 3.a | Core migrations, queries, sqlc | pass | make sqlc, sqlc diff (clean), migrate-verify (up/down/up v4), make migrate | |
+| 3.b | Store pool, tx, storetest | pass | make lint (0 issues), arch-check (ok), make test, make test-integration, /readyz 200->503->200 | Level 1 (Foundation) complete |
 | 4.a | platform/auth | pending | | |
 | 4.b | ratelimit, users, cmd/seed | pending | | |
 | 5.a | platform/queue, orders example | pending | | |
@@ -65,3 +65,18 @@ Each line here becomes an ADR in Phase 9.
 23. Default `ServeMux` 404 and 405 responses remain plain text so 405 Method Not Allowed is not masked by a catch-all route.
 24. `http.Server.ErrorLog` routes through slog via `slog.NewLogLogger`, so the `log` package is never imported directly.
 25. In HTTP test files, `httptest.NewRequestWithContext` is used instead of `httptest.NewRequest` to satisfy `noctx` in `golangci-lint` v2.14.0, and `ctx := r.Context()` is bound outside `defer` closures in `Recover` and `Metrics.Middleware` to satisfy `contextcheck`.
+26. Migrations 1-4 are plain goose SQL with working `Down` sections. PostgreSQL 13 or newer is required because `gen_random_uuid()` is built in, so no `CREATE EXTENSION` is needed.
+27. `refresh_tokens.user_id` cascades on user delete, and `family_id` and `user_id` are indexed. `idempotency_keys` and `refresh_tokens` carry an extra index on their time column to make cleanup jobs cheap.
+28. `idempotency_keys` keeps the specified columns. A row whose `status` is NULL means "in flight" (the 409 case), and replays are served from `status` and `response_body`.
+29. Queries are written with `sqlc.arg(name)` so generated parameter structs are named. `uuid` maps to `google/uuid.UUID` and `timestamptz` to `time.Time` (`*time.Time` when nullable), so repos do not leak `pgtype` into domain code.
+30. `InsertInboundEvent` uses `ON CONFLICT DO NOTHING RETURNING id`. A duplicate yields `pgx.ErrNoRows`, which the Phase 7 webhook handler maps to "200 without enqueue".
+31. The pool is created lazily. The API starts while the database is down and `/readyz` reports 503 until it recovers.
+32. PgBouncer decision: behind PgBouncer in transaction mode, set `default_query_exec_mode=cache_describe` (or `exec`) as a parameter in `DATABASE_URL`. River needs `DIRECT_DATABASE_URL` or its poll-only setting.
+33. `store.InTx` wraps `pgx.BeginFunc` and `InTxOptions` wraps `pgx.BeginTxFunc`. Business writes and River `InsertTx` share one transaction through them.
+34. `platform/store/errors.go` holds `UniqueViolation` and `ForeignKeyViolation` so repos translate driver errors without re-implementing `pgconn` unwrapping.
+35. `storetest` is built only with the `integration` tag (its `doc.go` carries no tag so the package exists in normal builds), so production builds never pull in testcontainers. It uses the goose Provider API instead of goose's global dialect state.
+36. `storetest.WithMigration` lets Phase 5 apply River's migrations without editing `storetest`.
+37. Test files may hold one package-level `testDB` handle assigned in `TestMain`. This is the only exception to "no package-level mutable state", and applies to `_test.go` files only.
+38. `goleak` is not used in `storetest` packages because the Docker client and container reaper start goroutines that would be reported as leaks. It remains in `httpx`.
+39. `internal/app/api.go` is extended with the pool, the `/readyz` DB check, and `pool.Close()` after the server drains. Deferred calls close the pool before flushing telemetry.
+40. `go mod tidy` after `make sqlc` is required so tidy sees the generated imports.
