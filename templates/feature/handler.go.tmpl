@@ -1,0 +1,46 @@
+package [[ .Package ]]
+
+import (
+	"errors"
+	"log/slog"
+	"net/http"
+
+	"github.com/google/uuid"
+
+	"[[ .Module ]]/internal/platform/httpx"
+)
+
+// Handler serves the [[ .Name ]] HTTP endpoints.
+type Handler struct {
+	svc    *Service
+	logger *slog.Logger
+}
+
+// NewHandler constructs a Handler.
+func NewHandler(svc *Service, logger *slog.Logger) *Handler {
+	return &Handler{svc: svc, logger: logger}
+}
+
+// Routes registers the [[ .Name ]] endpoints on router.
+func (h *Handler) Routes(router *httpx.Router, requireAuth func(http.Handler) http.Handler) {
+	router.Handle("GET /v1/[[ .Name ]]/{id}", requireAuth(http.HandlerFunc(h.get)))
+}
+
+func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httpx.WriteProblem(w, r, http.StatusBadRequest, "invalid id")
+		return
+	}
+	item, err := h.svc.Get(r.Context(), id)
+	if errors.Is(err, ErrNotFound) {
+		httpx.WriteProblem(w, r, http.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "get [[ .Singular ]] failed", "error", err, "request_id", httpx.RequestIDFrom(r.Context()))
+		httpx.WriteInternal(w, r)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, item)
+}

@@ -1,0 +1,38 @@
+package [[ .Package ]]
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/google/uuid"
+)
+
+type stubRepo struct {
+	item [[ .Title ]]
+	err  error
+}
+
+func (s stubRepo) GetByID(context.Context, uuid.UUID) ([[ .Title ]], error) {
+	return s.item, s.err
+}
+
+func TestValidateName(t *testing.T) {
+	if _, err := ValidateName("   "); !errors.Is(err, ErrInvalid) {
+		t.Errorf("ValidateName blank = %v, want ErrInvalid", err)
+	}
+	got, err := ValidateName("  widget  ")
+	if err != nil || got != "widget" {
+		t.Errorf("ValidateName = %q, %v; want widget, nil", got, err)
+	}
+}
+
+func TestServiceGet(t *testing.T) {
+	want := [[ .Title ]]{ID: uuid.New(), Name: "example"}
+	svc := NewService(stubRepo{item: want})
+
+	got, err := svc.Get(context.Background(), want.ID)
+	if err != nil || got.ID != want.ID {
+		t.Errorf("Get = %+v, %v; want %+v", got, err, want)
+	}
+}

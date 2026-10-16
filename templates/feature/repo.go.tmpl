@@ -1,0 +1,25 @@
+package [[ .Package ]]
+
+import (
+	"context"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// Repo implements Repository backed by PostgreSQL.
+type Repo struct {
+	pool *pgxpool.Pool
+}
+
+var _ Repository = (*Repo)(nil)
+
+// NewRepo constructs a Repo.
+func NewRepo(pool *pgxpool.Pool) *Repo {
+	return &Repo{pool: pool}
+}
+
+// GetByID loads one [[ .Singular ]] by ID. Replace with generated sqlc queries.
+func (r *Repo) GetByID(_ context.Context, _ uuid.UUID) ([[ .Title ]], error) {
+	return [[ .Title ]]{}, ErrNotFound
+}

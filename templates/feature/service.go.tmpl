@@ -1,0 +1,27 @@
+package [[ .Package ]]
+
+import (
+	"context"
+
+	"github.com/google/uuid"
+)
+
+// Repository is the persistence contract consumed by Service.
+type Repository interface {
+	GetByID(ctx context.Context, id uuid.UUID) ([[ .Title ]], error)
+}
+
+// Service implements the [[ .Name ]] use-cases.
+type Service struct {
+	repo Repository
+}
+
+// NewService constructs a Service.
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo}
+}
+
+// Get fetches a [[ .Singular ]] by ID.
+func (s *Service) Get(ctx context.Context, id uuid.UUID) ([[ .Title ]], error) {
+	return s.repo.GetByID(ctx, id)
+}

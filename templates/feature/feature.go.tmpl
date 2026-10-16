@@ -1,0 +1,32 @@
+// Package [[ .Package ]] implements the [[ .Name ]] feature.
+package [[ .Package ]]
+
+import (
+	"errors"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// ErrNotFound is returned when a [[ .Singular ]] does not exist.
+var ErrNotFound = errors.New("[[ .Package ]]: not found")
+
+// ErrInvalid is returned when input fails domain validation.
+var ErrInvalid = errors.New("[[ .Package ]]: invalid input")
+
+// [[ .Title ]] is the domain entity for the [[ .Name ]] feature.
+type [[ .Title ]] struct {
+	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ValidateName enforces the domain rules for a [[ .Singular ]] name.
+func ValidateName(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || len(trimmed) > 255 {
+		return "", ErrInvalid
+	}
+	return trimmed, nil
+}
