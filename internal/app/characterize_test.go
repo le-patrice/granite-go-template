@@ -15,7 +15,9 @@ import (
 
 	"github.com/google/uuid"
 
+	// template:example:begin orders
 	"example.com/app/internal/orders"
+	// template:example:end orders
 	"example.com/app/internal/platform/auth"
 	"example.com/app/internal/platform/httpx"
 	"example.com/app/internal/users"
@@ -89,14 +91,14 @@ func (r *charUserRepo) InsertRefreshToken(_ context.Context, token users.Refresh
 	return nil
 }
 
-func (r *charUserRepo) RotateRefreshToken(_ context.Context, presentedHash, nextHash []byte, nextExpiresAt, now time.Time) (users.RefreshToken, error) {
+func (r *charUserRepo) RotateRefreshToken(ctx context.Context, presentedHash, nextHash []byte, nextExpiresAt, now time.Time) (users.RefreshToken, error) {
 	for _, t := range r.tokens {
 		if !bytes.Equal(t.TokenHash, presentedHash) {
 			continue
 		}
 		switch t.Verdict(now) {
 		case users.VerdictReuse:
-			_ = r.RevokeRefreshFamily(context.Background(), t.FamilyID)
+			_ = r.RevokeRefreshFamily(ctx, t.FamilyID)
 			return users.RefreshToken{}, users.ErrTokenReuse
 		case users.VerdictInvalid:
 			return users.RefreshToken{}, users.ErrInvalidToken
@@ -143,6 +145,7 @@ func (r *charUserRepo) RevokeRefreshFamilyByHash(_ context.Context, tokenHash []
 	return nil
 }
 
+// template:example:begin orders
 // In-memory orders repo for characterization tests.
 type charOrderRepo struct {
 	orders []orders.Order
@@ -199,6 +202,7 @@ func (r *charOrderRepo) ListAll(_ context.Context, before int64, limit int) ([]o
 	}
 	return out, nil
 }
+// template:example:end orders
 
 type testHarness struct {
 	router *httpx.Router
@@ -231,9 +235,11 @@ func newTestHarness(t *testing.T) *testHarness {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	userHandler := users.NewHandler(userService, logger)
 
+	// template:example:begin orders
 	orderRepo := &charOrderRepo{}
 	orderService := orders.NewService(orderRepo)
 	orderHandler := orders.NewHandler(orderService, logger)
+	// template:example:end orders
 
 	router := httpx.NewRouter()
 	api := httpx.NewAPI(router, httpx.APIConfig{
@@ -245,7 +251,9 @@ func newTestHarness(t *testing.T) *testHarness {
 	authMW := auth.RequireAuth(tm)
 
 	userHandler.Routes(api, noopMW, authMW)
+	// template:example:begin orders
 	orderHandler.Routes(api, authMW, nil)
+	// template:example:end orders
 
 	return &testHarness{router: router, tokens: tm}
 }
@@ -348,6 +356,7 @@ func TestCharacterize_AuthAndUsers(t *testing.T) {
 	}
 }
 
+// template:example:begin orders
 func TestCharacterize_Orders(t *testing.T) {
 	h := newTestHarness(t)
 
@@ -434,3 +443,4 @@ func TestCharacterize_Orders(t *testing.T) {
 		t.Errorf("list mismatch: %+v", listRes)
 	}
 }
+// template:example:end orders

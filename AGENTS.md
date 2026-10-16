@@ -19,6 +19,7 @@ make seed-admin        # first admin from SEED_ADMIN_* env
 make test              # unit tests, -race
 make test-integration  # real Postgres via testcontainers
 make lint arch-check vuln
+make openapi / make openapi-check # generate & verify openapi.yaml
 make new-feature name=billing
 make init NAME=<app> MODULE=<module> EXAMPLES=keep|strip   # scaffold a project from the template (once)
 make strip-examples CONFIRM=yes                              # remove example code
@@ -26,7 +27,7 @@ make template-diff TAG=<version>                             # upstream changes 
 make add-module NAME=<module>                                # opt-in extras
 ```
 
-Definition of done: `make lint arch-check test test-integration migrate-verify` all pass, `sqlc diff` is clean, `go mod tidy` produces no diff.
+Definition of done: `make lint arch-check test test-integration migrate-verify openapi-check` all pass, `sqlc diff` is clean, `go mod tidy` produces no diff.
 
 ## Layout and where code goes
 
@@ -69,23 +70,25 @@ A service must be unit-testable with a fake repository, no database, no HTTP.
 12. No secrets, passwords, tokens, or hashes in logs or error messages.
 13. No `init()`, no package-level mutable state, no `utils`/`common`/`pkg` packages.
 14. Authorization decisions live in the service layer, not only in middleware.
+15. Huma lives only in feature `handler.go` and `internal/platform/httpx`; feature packages never import `github.com/danielgtaylor/huma/v2` directly (`depguard`). Every endpoint is registered through `httpx.Register`. Run `make openapi` before committing; CI checks for drift with `make openapi-check`. Built-in docs UI is disabled outside `local`. Client errors use the unified RFC 9457 problem helper.
 
 ## Conventions
 
 - Package names are short, lowercase, no stutter (`orders.Service`, not `orders.OrderService`).
 - Accept interfaces, return concrete types. Keep interfaces small and define them where they are used.
-- Handlers use Go 1.22 patterns: `mux.HandleFunc("POST /v1/orders", ...)`, `r.PathValue("id")`.
+- Handlers use typed Huma operations via `httpx.Register`: request/response structs, validation tags, and typed parameters.
 - Log with `slog` and the context-aware methods (`InfoContext`). Include `request_id`.
 - Errors on the wire are RFC 9457 problem+json from `httpx`.
 - Lists use keyset pagination. Never `OFFSET` on large tables.
 - Tests are table-driven. Integration tests carry `//go:build integration`.
+- Run `make openapi` to regenerate `api/openapi.yaml`; `make openapi-check` verifies consistency.
 
 ## Adding a feature
 
 1. `make new-feature name=<x>` and edit the generated files.
 2. Write the migration (with `Down`) and queries in `db/`; run `make sqlc`.
 3. Put rules in `<x>.go`, use-cases in `service.go`, SQL access in `repo.go`, HTTP in `handler.go`.
-4. Register the feature in `internal/app` (the only wiring point). Update `api/openapi.yaml`.
+4. Register the feature in `internal/app` (the only wiring point). Run `make openapi` to update `api/openapi.yaml`.
 5. Unit-test the service with a fake repo; integration-test the repo and handler.
 6. Run the definition-of-done commands.
 

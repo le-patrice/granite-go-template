@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	aidanwoods.dev/go-paseto v1.6.0
 	github.com/caarlos0/env/v11 v11.4.1
+	github.com/danielgtaylor/huma/v2 v2.39.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/pressly/goose/v3 v3.29.0
@@ -37,7 +38,6 @@ require (
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/containerd/platforms v0.2.1 // indirect
 	github.com/cpuguy83/dockercfg v0.3.2 // indirect
-	github.com/danielgtaylor/huma/v2 v2.39.1 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-connections v0.8.2 // indirect
 	github.com/docker/go-units v0.5.0 // indirect

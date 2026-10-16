@@ -105,7 +105,7 @@ type listResponse struct {
 }
 
 type createOrderOutput struct {
-	Location string        `header:"Location"`
+	Location string `header:"Location"`
 	Body     orderResponse
 }
 

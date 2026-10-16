@@ -7,7 +7,9 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"example.com/app/internal/config"
+	// template:example:begin orders
 	"example.com/app/internal/orders"
+	// template:example:end orders
 	"example.com/app/internal/platform/httpx"
 	"example.com/app/internal/users"
 )
@@ -27,7 +29,9 @@ func BuildOpenAPI(cfg config.Config) (*huma.OpenAPI, error) {
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	users.NewHandler(nil, logger).Routes(api, nil, nil)
+	// template:example:begin orders
 	orders.NewHandler(nil, logger).Routes(api, nil, nil)
+	// template:example:end orders
 
 	return api.OpenAPI(), nil
 }

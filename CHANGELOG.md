@@ -6,6 +6,23 @@ edits in downstream projects carries an "Upgrade notes" entry.
 
 ## [Unreleased]
 
+## [0.3.0]
+
+### Added
+
+- Huma v2 integration in `internal/platform/httpx`: Typed operation registration via `httpx.Register` and `httpx.NewAPI`.
+- Code-first OpenAPI 3.1 generation via `cmd/openapi`, `make openapi`, and `make openapi-check`.
+- Unified RFC 9457 Problem error model across all client errors with field-level details.
+- Suppression of `$schema` injection on response payloads.
+- Automated route coverage test in `internal/app/routes_test.go`.
+- `huma-boundary` depguard rule enforcing that feature packages never import `github.com/danielgtaylor/huma/v2` directly.
+- Micro-benchmark in `internal/platform/httpx/benchmark_test.go` measuring Huma vs bare `net/http`.
+- ADR 0006 and `templates/modules/huma/README.md`.
+
+### Upgrade notes
+
+- Downstream projects must port `handler.go` files to use `httpx.Register` and typed input/output structs. Domain logic (`<feature>.go`, `service.go`, `repo.go`) requires zero changes.
+
 ## [0.2.0]
 
 ### Added

@@ -12,7 +12,9 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	// template:example:begin orders
 	"example.com/app/internal/orders"
+	// template:example:end orders
 	"example.com/app/internal/platform/auth"
 	"example.com/app/internal/platform/httpx"
 	"example.com/app/internal/users"
@@ -93,9 +95,11 @@ func setupTestRouterAndAPI(t *testing.T) (*httpx.Router, huma.API) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	userHandler := users.NewHandler(userService, logger)
 
+	// template:example:begin orders
 	orderRepo := &charOrderRepo{}
 	orderService := orders.NewService(orderRepo)
 	orderHandler := orders.NewHandler(orderService, logger)
+	// template:example:end orders
 
 	router := httpx.NewRouter()
 	router.Handle("GET /healthz", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
@@ -114,7 +118,9 @@ func setupTestRouterAndAPI(t *testing.T) (*httpx.Router, huma.API) {
 	authMW := auth.RequireAuth(tm)
 
 	userHandler.Routes(api, noopMW, authMW)
+	// template:example:begin orders
 	orderHandler.Routes(api, authMW, nil)
+	// template:example:end orders
 
 	return router, api
 }
@@ -124,14 +130,14 @@ func TestRouteCoverage(t *testing.T) {
 
 	// Explicit list of router patterns exempted from OpenAPI documentation, with reasons.
 	exemptions := map[string]string{
-		"GET /openapi":           "Huma built-in OpenAPI spec endpoint",
-		"GET /openapi.json":      "Huma built-in OpenAPI JSON spec endpoint",
-		"GET /openapi.yaml":      "Huma built-in OpenAPI YAML spec endpoint",
-		"GET /openapi-3.0.json":  "Huma built-in OpenAPI 3.0 JSON spec endpoint",
-		"GET /openapi-3.0.yaml":  "Huma built-in OpenAPI 3.0 YAML spec endpoint",
-		"GET /docs":              "Huma built-in interactive documentation UI",
-		"GET /schemas":           "Huma built-in JSON Schemas endpoint",
-		"GET /schemas/{schema}":  "Huma built-in schema detail endpoint",
+		"GET /openapi":          "Huma built-in OpenAPI spec endpoint",
+		"GET /openapi.json":     "Huma built-in OpenAPI JSON spec endpoint",
+		"GET /openapi.yaml":     "Huma built-in OpenAPI YAML spec endpoint",
+		"GET /openapi-3.0.json": "Huma built-in OpenAPI 3.0 JSON spec endpoint",
+		"GET /openapi-3.0.yaml": "Huma built-in OpenAPI 3.0 YAML spec endpoint",
+		"GET /docs":             "Huma built-in interactive documentation UI",
+		"GET /schemas":          "Huma built-in JSON Schemas endpoint",
+		"GET /schemas/{schema}": "Huma built-in schema detail endpoint",
 	}
 
 	patterns := router.Patterns()

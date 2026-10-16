@@ -45,6 +45,15 @@ linters:
           deny:
             - pkg: example.com/app/internal/integrations
               desc: only app and integrations may import vendor packages
+        huma-boundary:
+          files:
+            - "**/internal/**/*.go"
+            - "!**/internal/platform/httpx/**"
+            - "!**/internal/platform/auth/**"
+            - "!**/internal/app/**"
+          deny:
+            - pkg: github.com/danielgtaylor/huma/v2
+              desc: features must not import huma directly; use internal/platform/httpx
     forbidigo:
       forbid:
         - pattern: '^fmt\.Print(f|ln)?$'
