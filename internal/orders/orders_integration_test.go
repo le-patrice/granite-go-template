@@ -219,7 +219,8 @@ func newAPI(t *testing.T) (api, *pgxpool.Pool) {
 	}
 	svc := orders.NewService(orders.NewRepo(pool, insertClient(t, pool)))
 	router := httpx.NewRouter()
-	orders.NewHandler(svc, discardLogger()).Routes(router, auth.RequireAuth(tokens), nil)
+	apiInstance := httpx.NewAPI(router, httpx.APIConfig{Title: "Test", Version: "1.0.0"})
+	orders.NewHandler(svc, discardLogger()).Routes(apiInstance, auth.RequireAuth(tokens), nil)
 	handler := httpx.Chain(router, httpx.Recover(discardLogger()), httpx.RequestID())
 	return api{handler: handler, tokens: tokens}, pool
 }

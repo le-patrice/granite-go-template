@@ -2,8 +2,13 @@ package httpx
 
 import (
 	"context"
+	"crypto/tls"
+	"io"
+	"mime/multipart"
 	"net/http"
+	"net/url"
 	"sync"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -11,6 +16,9 @@ import (
 
 // Re-exported Huma types so feature packages never import Huma directly.
 type (
+	// API is the Huma API interface.
+	API = huma.API
+
 	// Operation describes an API operation.
 	Operation = huma.Operation
 
@@ -120,4 +128,120 @@ func Register[I, O any](api huma.API, op Operation, handler func(context.Context
 // AddDocumentedRoute documents a raw route directly in the OpenAPI spec without handling it through Huma.
 func AddDocumentedRoute(api huma.API, op *Operation) {
 	api.OpenAPI().AddOperation(op)
+}
+
+// wrappedContext wraps a huma.Context to redirect writes to an adapted http.ResponseWriter.
+type wrappedContext struct {
+	orig huma.Context
+	w    http.ResponseWriter
+	r    *http.Request
+}
+
+func (c *wrappedContext) Unwrap() huma.Context {
+	return c.orig
+}
+
+func (c *wrappedContext) Operation() *huma.Operation {
+	return c.orig.Operation()
+}
+
+func (c *wrappedContext) Context() context.Context {
+	return c.r.Context()
+}
+
+func (c *wrappedContext) TLS() *tls.ConnectionState {
+	return c.orig.TLS()
+}
+
+func (c *wrappedContext) Version() huma.ProtoVersion {
+	return c.orig.Version()
+}
+
+func (c *wrappedContext) Method() string {
+	return c.r.Method
+}
+
+func (c *wrappedContext) Host() string {
+	return c.r.Host
+}
+
+func (c *wrappedContext) RemoteAddr() string {
+	return c.r.RemoteAddr
+}
+
+func (c *wrappedContext) URL() url.URL {
+	return *c.r.URL
+}
+
+func (c *wrappedContext) Param(name string) string {
+	return c.orig.Param(name)
+}
+
+func (c *wrappedContext) Query(name string) string {
+	return c.orig.Query(name)
+}
+
+func (c *wrappedContext) Header(name string) string {
+	return c.r.Header.Get(name)
+}
+
+func (c *wrappedContext) EachHeader(cb func(name, value string)) {
+	c.orig.EachHeader(cb)
+}
+
+func (c *wrappedContext) BodyReader() io.Reader {
+	return c.r.Body
+}
+
+func (c *wrappedContext) GetMultipartForm() (*multipart.Form, error) {
+	return c.orig.GetMultipartForm()
+}
+
+func (c *wrappedContext) SetReadDeadline(d time.Time) error {
+	return c.orig.SetReadDeadline(d)
+}
+
+func (c *wrappedContext) SetStatus(code int) {
+	c.orig.SetStatus(code)
+	c.w.WriteHeader(code)
+}
+
+func (c *wrappedContext) Status() int {
+	return c.orig.Status()
+}
+
+func (c *wrappedContext) SetHeader(name, value string) {
+	c.orig.SetHeader(name, value)
+	c.w.Header().Set(name, value)
+}
+
+func (c *wrappedContext) AppendHeader(name, value string) {
+	c.orig.AppendHeader(name, value)
+	c.w.Header().Add(name, value)
+}
+
+func (c *wrappedContext) BodyWriter() io.Writer {
+	return c.w
+}
+
+// AdaptMiddleware adapts a standard func(http.Handler) http.Handler middleware
+// into a Huma operation middleware.
+func AdaptMiddleware(mw func(http.Handler) http.Handler) func(Context, func(Context)) {
+	if mw == nil {
+		return func(ctx Context, next func(Context)) {
+			next(ctx)
+		}
+	}
+	return func(ctx Context, next func(Context)) {
+		r, w := humago.Unwrap(ctx)
+		handler := mw(http.HandlerFunc(func(w2 http.ResponseWriter, r2 *http.Request) {
+			wc := &wrappedContext{
+				orig: ctx,
+				w:    w2,
+				r:    r2,
+			}
+			next(huma.WithContext(wc, r2.Context()))
+		}))
+		handler.ServeHTTP(w, r)
+	}
 }

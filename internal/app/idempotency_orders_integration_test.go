@@ -53,7 +53,8 @@ func newOrdersAPI(t *testing.T) ordersAPI {
 	}
 
 	router := httpx.NewRouter()
-	orders.NewHandler(orders.NewService(orders.NewRepo(pool, jobs)), logger).Routes(router, auth.RequireAuth(tokens), idempotent)
+	api := httpx.NewAPI(router, httpx.APIConfig{Title: "Test", Version: "1.0.0"})
+	orders.NewHandler(orders.NewService(orders.NewRepo(pool, jobs)), logger).Routes(api, auth.RequireAuth(tokens), idempotent)
 	return ordersAPI{
 		handler: httpx.Chain(router, httpx.Recover(logger), httpx.RequestID()),
 		tokens:  tokens,

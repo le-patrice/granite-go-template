@@ -46,8 +46,9 @@ func newAPI(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	svc := users.NewService(users.NewRepo(pool), hasher, tokens, users.Options{RefreshTTL: time.Hour, Logger: logger})
 
 	router := httpx.NewRouter()
+	api := httpx.NewAPI(router, httpx.APIConfig{Title: "Test", Version: "1.0.0"})
 	passthrough := func(next http.Handler) http.Handler { return next }
-	users.NewHandler(svc, logger).Routes(router, passthrough, auth.RequireAuth(tokens))
+	users.NewHandler(svc, logger).Routes(api, passthrough, auth.RequireAuth(tokens))
 	return httpx.Chain(router, httpx.Recover(logger), httpx.RequestID()), pool
 }
 

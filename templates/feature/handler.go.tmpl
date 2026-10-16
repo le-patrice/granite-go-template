@@ -1,6 +1,7 @@
 package [[ .Package ]]
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -21,26 +22,39 @@ func NewHandler(svc *Service, logger *slog.Logger) *Handler {
 	return &Handler{svc: svc, logger: logger}
 }
 
-// Routes registers the [[ .Name ]] endpoints on router.
-func (h *Handler) Routes(router *httpx.Router, requireAuth func(http.Handler) http.Handler) {
-	router.Handle("GET /v1/[[ .Name ]]/{id}", requireAuth(http.HandlerFunc(h.get)))
+// Routes registers the [[ .Name ]] endpoints on api.
+func (h *Handler) Routes(api httpx.API, requireAuth func(http.Handler) http.Handler) {
+	httpx.Register(api, httpx.Operation{
+		OperationID: "get[[ .Singular ]]",
+		Method:      http.MethodGet,
+		Path:        "/v1/[[ .Name ]]/{id}",
+		Summary:     "Get [[ .Singular ]] by ID",
+		Tags:        []string{"[[ .Name ]]"},
+		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Middlewares: httpx.Middlewares{httpx.AdaptMiddleware(requireAuth)},
+	}, h.get)
 }
 
-func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
-	id, err := uuid.Parse(r.PathValue("id"))
+type get[[ .Singular ]]Input struct {
+	ID string `path:"id" doc:"[[ .Singular ]] ID" format:"uuid"`
+}
+
+type [[ .Singular ]]Output struct {
+	Body [[ .Singular ]]
+}
+
+func (h *Handler) get(ctx context.Context, input *get[[ .Singular ]]Input) (*[[ .Singular ]]Output, error) {
+	id, err := uuid.Parse(input.ID)
 	if err != nil {
-		httpx.WriteProblem(w, r, http.StatusBadRequest, "invalid id")
-		return
+		return nil, httpx.NewProblem(http.StatusBadRequest, "invalid id")
 	}
-	item, err := h.svc.Get(r.Context(), id)
+	item, err := h.svc.Get(ctx, id)
 	if errors.Is(err, ErrNotFound) {
-		httpx.WriteProblem(w, r, http.StatusNotFound, "not found")
-		return
+		return nil, httpx.NewProblem(http.StatusNotFound, "not found")
 	}
 	if err != nil {
-		h.logger.ErrorContext(r.Context(), "get [[ .Singular ]] failed", "error", err, "request_id", httpx.RequestIDFrom(r.Context()))
-		httpx.WriteInternal(w, r)
-		return
+		h.logger.ErrorContext(ctx, "get [[ .Singular ]] failed", "error", err, "request_id", httpx.RequestIDFrom(ctx))
+		return nil, httpx.NewProblem(http.StatusInternalServerError, "")
 	}
-	httpx.WriteJSON(w, http.StatusOK, item)
+	return &[[ .Singular ]]Output{Body: item}, nil
 }

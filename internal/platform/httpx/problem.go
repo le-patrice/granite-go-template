@@ -39,6 +39,20 @@ func (p *Problem) Error() string {
 	return p.Title
 }
 
+// NewProblem creates a new *Problem with standard RFC 9457 fields.
+func NewProblem(status int, detail string) *Problem {
+	p := &Problem{
+		Type:   "about:blank",
+		Title:  http.StatusText(status),
+		Status: status,
+		Detail: detail,
+	}
+	if status >= http.StatusInternalServerError {
+		p.Detail = ""
+	}
+	return p
+}
+
 // WriteProblem writes an application/problem+json response. For 5xx statuses
 // the detail is always dropped, so internal error text never reaches clients.
 func WriteProblem(w http.ResponseWriter, r *http.Request, status int, detail string) {

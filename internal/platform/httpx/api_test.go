@@ -171,3 +171,51 @@ func TestAddDocumentedRoute(t *testing.T) {
 		t.Fatalf("expected /healthz route documented in spec: %+v", spec.Paths)
 	}
 }
+
+func TestAdaptMiddleware(t *testing.T) {
+	router := NewRouter()
+	api := NewAPI(router, APIConfig{Title: "Test", Version: "1.0.0"})
+
+	type testContextKey struct{}
+	mw := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("X-Auth") == "" {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte("unauthorized"))
+				return
+			}
+			ctx := context.WithValue(r.Context(), testContextKey{}, "test-val")
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+
+	Register(api, Operation{
+		OperationID: "guarded",
+		Method:      http.MethodGet,
+		Path:        "/guarded",
+		Middlewares: Middlewares{AdaptMiddleware(mw)},
+	}, func(ctx context.Context, input *struct{}) (*struct{ Body string }, error) {
+		val, _ := ctx.Value(testContextKey{}).(string)
+		return &struct{ Body string }{Body: val}, nil
+	})
+
+	// 1. Rejected by middleware
+	req1 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/guarded", nil)
+	rec1 := httptest.NewRecorder()
+	router.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec1.Code)
+	}
+
+	// 2. Allowed by middleware, context passed through
+	req2 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/guarded", nil)
+	req2.Header.Set("X-Auth", "secret")
+	rec2 := httptest.NewRecorder()
+	router.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec2.Code)
+	}
+	if !strings.Contains(rec2.Body.String(), "test-val") {
+		t.Fatalf("body = %q, want test-val", rec2.Body.String())
+	}
+}

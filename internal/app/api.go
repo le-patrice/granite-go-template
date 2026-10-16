@@ -174,8 +174,15 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	router.Handle("GET /metrics", metrics.Handler())
 	router.Handle("POST /v1/webhooks/{source}", ingest)
 
+	api := httpx.NewAPI(router, httpx.APIConfig{
+		Title:         cfg.ServiceName,
+		Version:       cfg.AppVersion,
+		DocsEnabled:   cfg.DocsEnabled,
+		PublicBaseURL: cfg.PublicBaseURL,
+	})
+
 	users.NewHandler(ids.users, logger).Routes(
-		router,
+		api,
 		ratelimit.Middleware(authLimiter, ratelimit.ByClientIP),
 		auth.RequireAuth(ids.tokens),
 	)
@@ -190,7 +197,7 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return fmt.Errorf("app: %w", err)
 	}
 	orders.NewHandler(orders.NewService(orders.NewRepo(pool, jobs)), logger).Routes(
-		router,
+		api,
 		auth.RequireAuth(ids.tokens),
 		idempotent,
 	)

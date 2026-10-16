@@ -236,11 +236,16 @@ func newTestHarness(t *testing.T) *testHarness {
 	orderHandler := orders.NewHandler(orderService, logger)
 
 	router := httpx.NewRouter()
+	api := httpx.NewAPI(router, httpx.APIConfig{
+		Title:       "Test Service",
+		Version:     "1.0.0",
+		DocsEnabled: false,
+	})
 	noopMW := func(h http.Handler) http.Handler { return h }
 	authMW := auth.RequireAuth(tm)
 
-	userHandler.Routes(router, noopMW, authMW)
-	orderHandler.Routes(router, authMW, nil)
+	userHandler.Routes(api, noopMW, authMW)
+	orderHandler.Routes(api, authMW, nil)
 
 	return &testHarness{router: router, tokens: tm}
 }
