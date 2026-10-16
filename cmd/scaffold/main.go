@@ -113,7 +113,8 @@ func runInit(args []string) error {
 	}
 
 	// Detect if post-gonew: gonew already rewrote go.mod to the user's chosen module.
-	isPostGonew := currentMod != "example.com/app" && currentMod != "{{MODULE_PATH}}"
+	standinMod := "example" + ".com/app"
+	isPostGonew := currentMod != standinMod && currentMod != "{"+"{MODULE_PATH}}"
 
 	name := *nameFlag
 	module := *moduleFlag
@@ -163,9 +164,9 @@ func runInit(args []string) error {
 
 	// Replace tokens in repository files
 	replacements := map[string]string{
-		"{{APP_NAME}}":    name,
-		"{{MODULE_PATH}}": module,
-		"example.com/app": module,
+		"{" + "{APP_NAME}}":    name,
+		"{" + "{MODULE_PATH}}": module,
+		standinMod:             module,
 	}
 
 	err = replaceTokensInRepo(".", replacements, isDryRun)
@@ -198,7 +199,8 @@ func runInit(args []string) error {
 			return err
 		}
 
-		// Run go mod tidy to ensure go.mod and go.sum are clean
+		// Format files and run go mod tidy
+		_ = runCmd(context.Background(), "gofmt", "-w", ".")
 		_ = runCmd(context.Background(), "go", "mod", "tidy")
 	}
 
@@ -219,7 +221,7 @@ func replaceTokensInRepo(root string, replacements map[string]string, dryRun boo
 			return err
 		}
 		if d.IsDir() {
-			if skipDirs[d.Name()] {
+			if skipDirs[d.Name()] || d.Name() == "scaffold" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -308,8 +310,9 @@ func executeStripExamples(root string, dryRun bool) error {
 		}
 	}
 
-	// 4. Regenerate sqlc and go mod tidy
+	// 4. Format files, regenerate sqlc and go mod tidy
 	if !dryRun {
+		_ = runCmd(context.Background(), "gofmt", "-w", ".")
 		_ = runCmd(context.Background(), "sqlc", "generate")
 		_ = runCmd(context.Background(), "go", "mod", "tidy")
 	}
@@ -329,7 +332,7 @@ func stripInlineMarkersInRepo(root string, dryRun bool) error {
 			return err
 		}
 		if d.IsDir() {
-			if skipDirs[d.Name()] {
+			if skipDirs[d.Name()] || d.Name() == "scaffold" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -447,7 +450,7 @@ func stripMarkedFiles(root string, dryRun bool) error {
 			return err
 		}
 		if d.IsDir() {
-			if skipDirs[d.Name()] {
+			if skipDirs[d.Name()] || d.Name() == "scaffold" {
 				return filepath.SkipDir
 			}
 			return nil

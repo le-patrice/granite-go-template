@@ -12,6 +12,7 @@ import (
 )
 
 const createOrder = `-- name: CreateOrder :one
+
 INSERT INTO orders (owner_id, reference, amount_minor, currency)
 VALUES ($1, $2, $3, $4)
 RETURNING id, owner_id, reference, amount_minor, currency, created_at, updated_at
@@ -24,6 +25,7 @@ type CreateOrderParams struct {
 	Currency    string
 }
 
+// template:example:file orders
 func (q *Queries) CreateOrder(ctx context.Context, arg CreateOrderParams) (Order, error) {
 	row := q.db.QueryRow(ctx, createOrder,
 		arg.OwnerID,
