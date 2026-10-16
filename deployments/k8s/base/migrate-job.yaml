@@ -1,0 +1,41 @@
+# Run before each rollout (Argo CD PreSync hook, Helm-style hook, or kubectl apply
+# then wait). Migrations are expand/contract, so old pods keep working while it runs.
+# Uses DIRECT_DATABASE_URL, never the pooled URL (rule 10).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      serviceAccountName: app
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: app-schema
+          image: app-migrate
+          command: ["/bin/sh", "-c"]
+          args: ['exec /bin/goose -dir /migrations postgres "$DIRECT_DATABASE_URL" up']
+          envFrom:
+            - secretRef: {name: app-secrets}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+      containers:
+        - name: river
+          image: app
+          command: ["/bin/worker", "migrate", "-direction", "up"]
+          envFrom:
+            - configMapRef: {name: app-config}
+            - secretRef: {name: app-secrets}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}

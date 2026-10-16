@@ -142,3 +142,40 @@ func TestLogValueHidesSecrets(t *testing.T) {
 		t.Errorf("log output is missing non-secret fields: %s", out)
 	}
 }
+
+func TestScalingSettings(t *testing.T) {
+	tests := []struct {
+		name    string
+		extra   map[string]string
+		wantErr string
+	}{
+		{name: "defaults"},
+		{name: "queues", extra: map[string]string{"WORKER_QUEUES": "default:10,webhooks:5"}},
+		{name: "zero queue", extra: map[string]string{"WORKER_QUEUES": "slow:0"}, wantErr: "WORKER_QUEUES"},
+		{name: "min above max", extra: map[string]string{"DB_MAX_CONNS": "5", "DB_MIN_CONNS": "9"}, wantErr: "DB_MAX_CONNS"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := validEnv()
+			for k, v := range tt.extra {
+				env[k] = v
+			}
+			cfg, err := LoadFrom(env)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %v, want it to mention %s", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadFrom: %v", err)
+			}
+			if cfg.WorkerHealthAddr != ":8081" || cfg.DBMaxConnLifetime != 30*time.Minute {
+				t.Errorf("defaults = %q/%v", cfg.WorkerHealthAddr, cfg.DBMaxConnLifetime)
+			}
+			if tt.name == "queues" && (cfg.WorkerQueues["webhooks"] != 5 || len(cfg.WorkerQueues) != 2) {
+				t.Errorf("WorkerQueues = %v", cfg.WorkerQueues)
+			}
+		})
+	}
+}

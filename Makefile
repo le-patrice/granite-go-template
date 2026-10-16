@@ -1,3 +1,14 @@
+SHELL := /bin/bash
+
+# Terminal styling
+BLUE   := \033[0;34m
+GREEN  := \033[0;32m
+YELLOW := \033[1;33m
+RED    := \033[0;31m
+CYAN   := \033[0;36m
+BOLD   := \033[1m
+NC     := \033[0m
+
 APP_NAME       ?= {{APP_NAME}}
 MIGRATIONS_DIR ?= db/migrations
 
@@ -31,12 +42,116 @@ LOADENV = set -a; if [ -f .env ]; then . ./.env; fi; set +a;
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs migrate migrate-verify sqlc run-api run-worker seed-admin \
+# Local ports and image tags used by the full-stack targets.
+API_PORT    ?= 8080
+WORKER_PORT ?= 8081
+BIN_DIR     ?= bin
+APP_IMAGE   ?= app:local
+MIGRATE_IMAGE ?= app-migrate:local
+APP_COMPOSE = $(COMPOSE) --profile app
+
+.PHONY: help up down logs setup dev check build build-images stack stack-down stack-logs ps health metrics \
+	db-shell db-backup down-volumes clean prune stats logs-api logs-worker migrate migrate-verify sqlc run-api run-worker seed-admin \
 	test test-integration lint arch-check vuln new-feature init strip-examples \
 	template-diff add-module perf scaffold-smoke openapi openapi-check
 
 help: ## List targets
-	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@echo -e ""
+	@echo -e "$(BLUE)$(BOLD)== $(APP_NAME) control plane ==$(NC)"
+	@echo -e ""
+	@echo -e "$(CYAN)$(BOLD)Workflows:$(NC)"
+	@echo -e "  $(GREEN)make setup$(NC)   one-click: .env, Postgres, migrations, admin seed"
+	@echo -e "  $(GREEN)make dev$(NC)     Postgres + migrations, then run the API on :$(API_PORT)"
+	@echo -e "  $(GREEN)make stack$(NC)   build images and run Postgres + migrate + api + worker in containers"
+	@echo -e "  $(GREEN)make check$(NC)   QA gate: lint, arch-check, tests, openapi-check"
+	@echo -e ""
+	@echo -e "$(YELLOW)$(BOLD)All targets:$(NC)"
+	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*## "}; {printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}'
+	@echo -e ""
+
+setup: ## One-click bootstrap: .env, Postgres, migrations, admin seed
+	@if [ ! -f .env ]; then echo -e "$(YELLOW)Creating .env from .env.example...$(NC)"; cp .env.example .env; fi
+	@echo -e "$(BLUE)1/3 Starting Postgres...$(NC)"
+	@$(MAKE) --no-print-directory up
+	@echo -e "$(BLUE)2/3 Applying migrations...$(NC)"
+	@$(MAKE) --no-print-directory migrate
+	@echo -e "$(BLUE)3/3 Seeding admin...$(NC)"
+	@$(MAKE) --no-print-directory seed-admin
+	@echo -e "$(GREEN)$(BOLD)Ready.$(NC) Run $(CYAN)make run-api$(NC) and $(CYAN)make run-worker$(NC), or $(CYAN)make stack$(NC) for containers."
+	@echo -e "  $(CYAN)API docs:$(NC) http://localhost:$(API_PORT)/docs   $(CYAN)Health:$(NC) http://localhost:$(API_PORT)/readyz"
+
+dev: ## Daily dev: Postgres + migrations, then run the API in the foreground
+	@$(MAKE) --no-print-directory up
+	@$(MAKE) --no-print-directory migrate
+	@$(MAKE) --no-print-directory run-api
+
+check: ## QA gate: lint, arch-check, unit tests, openapi-check
+	@$(MAKE) --no-print-directory lint
+	@$(MAKE) --no-print-directory arch-check
+	@$(MAKE) --no-print-directory test
+	@$(MAKE) --no-print-directory openapi-check
+	@echo -e "$(GREEN)$(BOLD)All QA checks passed.$(NC)"
+
+build: ## Compile api, worker, seed into ./bin
+	@echo -e "$(BLUE)Building binaries into $(BIN_DIR)/...$(NC)"
+	@mkdir -p $(BIN_DIR)
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/api ./cmd/api
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/worker ./cmd/worker
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/seed ./cmd/seed
+	@echo -e "$(GREEN)Built $(BIN_DIR)/{api,worker,seed}$(NC)"
+
+build-images: ## Build the runtime and migrate container images
+	@echo -e "$(BLUE)Building container images...$(NC)"
+	$(APP_COMPOSE) build
+	@echo -e "$(GREEN)Images built: $(APP_IMAGE), $(MIGRATE_IMAGE)$(NC)"
+
+stack: ## Build images and run Postgres, migrations, api, worker in containers
+	$(APP_COMPOSE) up -d --build --wait api worker
+	@echo -e "$(GREEN)Stack running.$(NC) $(CYAN)API docs:$(NC) http://localhost:$(API_PORT)/docs  $(CYAN)Worker probes:$(NC) http://localhost:$(WORKER_PORT)/readyz"
+
+stack-down: ## Stop the full container stack (keeps data volume)
+	$(APP_COMPOSE) down
+
+stack-logs: ## Tail api and worker container logs
+	$(APP_COMPOSE) logs -f api worker
+
+logs-api: ## Tail api container logs
+	$(APP_COMPOSE) logs -f api
+
+logs-worker: ## Tail worker container logs
+	$(APP_COMPOSE) logs -f worker
+
+ps: ## List stack containers
+	$(APP_COMPOSE) ps
+
+health: ## Check API and worker readiness over HTTP
+	@curl -fsS http://localhost:$(API_PORT)/readyz >/dev/null && echo -e "$(GREEN)API ready$(NC)" || echo -e "$(RED)API not ready on :$(API_PORT)$(NC)"
+	@curl -fsS http://localhost:$(WORKER_PORT)/readyz >/dev/null && echo -e "$(GREEN)Worker ready$(NC)" || echo -e "$(YELLOW)Worker not ready on :$(WORKER_PORT)$(NC)"
+
+metrics: ## Fetch Prometheus metrics from the API
+	@curl -s http://localhost:$(API_PORT)/metrics
+
+db-shell: ## Open psql on the local Postgres container
+	$(COMPOSE) exec postgres psql -U $(PG_USER) -d app
+
+db-backup: ## Dump the local database to backups/ (gzip)
+	@mkdir -p backups
+	$(COMPOSE) exec -T postgres pg_dump -U $(PG_USER) app | gzip -9 > backups/db_$$(date +%Y%m%d_%H%M%S).sql.gz
+	@echo -e "$(GREEN)Backup saved in backups/$(NC)"
+
+down-volumes: ## Stop everything and DESTROY the local database volume
+	@echo -e "$(RED)$(BOLD)This deletes the local database volume.$(NC)"
+	@read -p "Proceed? [y/N] " -n 1 -r; echo ""; \
+	if [[ $$REPLY =~ ^[Yy]$$ ]]; then $(APP_COMPOSE) down -v; else echo "aborted"; fi
+
+stats: ## Container resource usage snapshot
+	@$(if $(DOCKER_BIN),docker,podman) stats --no-stream
+
+clean: ## Remove built binaries
+	rm -rf $(BIN_DIR)
+
+prune: ## Prune stopped containers and dangling images
+	@$(if $(DOCKER_BIN),docker,podman) system prune -f
 
 up: ## Start local Postgres
 	$(COMPOSE) up -d --wait postgres

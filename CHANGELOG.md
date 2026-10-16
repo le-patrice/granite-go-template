@@ -6,6 +6,30 @@ edits in downstream projects carries an "Upgrade notes" entry.
 
 ## [Unreleased]
 
+## [0.4.0]
+
+### Added
+
+- `docs/DOMAIN_BLUEPRINT.md`: method, checklists and a worked WhatsApp payments example for adding business domains.
+- `docs/OPERATIONS.md`, `docs/SCALING.md`, ADR 0007, and a GitBook structure (`.gitbook.yaml`, `docs/SUMMARY.md`, `docs/README.md`).
+- Worker health listener (`WORKER_HEALTH_ADDR`, default `:8081`) with `/healthz` and `/readyz`.
+- Named River queues via `WORKER_QUEUES`; `queue.WorkerConfig.Queues` and `TotalWorkers`.
+- Pool tuning: `DB_MAX_CONNS`, `DB_MIN_CONNS`, `DB_MAX_CONN_LIFETIME`, `DB_MAX_CONN_IDLE_TIME`.
+- Kustomize manifests (`deployments/k8s`), Prometheus alert rules, and a `migrate` Docker target.
+- Makefile: styled `help`, `setup`, `dev`, `check`, `build`, `build-images`, `stack`, `ps`, `health`, `db-shell`, `db-backup` and related targets; compose `app` profile (migrate, river-migrate, api, worker).
+- CI: image build, Trivy scan, SBOM, kustomize render; Dependabot configuration.
+
+### Changed
+
+- `store.Pinger` accepts the small `store.Pinging` interface instead of `*pgxpool.Pool`.
+- README rewritten for advanced users with a documentation map.
+
+### Upgrade notes
+
+- New variables are optional with safe defaults; copy the new entries from `.env.example`.
+- The worker now listens on `:8081` by default. Set `WORKER_HEALTH_ADDR=` to disable, or change the port if it conflicts.
+- Replace `{{APP_NAME}}` image names in `deployments/k8s/base/kustomization.yaml` or delete `deployments/k8s` if you do not use Kubernetes.
+
 ## [0.3.0]
 
 ### Added

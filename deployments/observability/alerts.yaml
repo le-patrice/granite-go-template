@@ -1,0 +1,67 @@
+# Prometheus alert rules. Load with a PrometheusRule (operator) or rule_files.
+# HTTP rules use the metrics the API exports today (http_requests_total,
+# http_request_duration_seconds). Queue rules need the postgres_exporter custom
+# query documented in docs/OPERATIONS.md (river_jobs_* metrics).
+groups:
+  - name: api
+    rules:
+      - alert: ApiHighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 1) > 0.02
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "More than 2% of requests are failing with 5xx"
+      - alert: ApiHighLatencyP95
+        expr: |
+          histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "p95 latency above 1s on {{ $labels.route }}"
+      - alert: ApiRateLimited
+        expr: sum(rate(http_requests_total{status="429"}[5m])) > 5
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: "Sustained 429s: abuse, or limits set too low"
+      - alert: WebhookRejections
+        expr: sum(rate(http_requests_total{route=~".*webhooks.*",status=~"401|403"}[10m])) > 1
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "Webhook signature failures: rotated secret or probing"
+      - alert: InstanceDown
+        expr: up{job=~".*(api|worker).*"} == 0
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.instance }} is not scrapable"
+  - name: queue
+    rules:
+      - alert: JobQueueBacklogAge
+        expr: max by (queue) (river_jobs_available_oldest_age_seconds) > 300
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "Oldest runnable job in queue {{ $labels.queue }} is over 5 minutes old"
+      - alert: JobsFailingRepeatedly
+        expr: sum(river_jobs_retryable) > 100
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: "Many jobs are in retry: a vendor or a bug"
+      - alert: JobsDiscarded
+        expr: increase(river_jobs_discarded_total[1h]) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "Jobs exhausted retries and were discarded: replay or fix (docs/OPERATIONS.md)"
+  - name: database
+    rules:
+      - alert: PostgresConnectionsHigh
+        expr: sum(pg_stat_activity_count) / max(pg_settings_max_connections) > 0.8
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "Connections above 80% of max_connections: lower DB_MAX_CONNS or add PgBouncer"

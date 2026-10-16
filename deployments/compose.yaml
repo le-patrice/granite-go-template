@@ -15,5 +15,57 @@ services:
       timeout: 2s
       retries: 15
 
+  # --- Full stack (profile "app"): make stack ------------------------------------
+  # One-shot schema migration (goose), then River migrations, then api and worker.
+  migrate:
+    profiles: [app]
+    image: app-migrate:local
+    build: {context: .., dockerfile: deployments/Dockerfile, target: migrate}
+    command: ["-dir", "/migrations", "postgres", "postgres://app:app@postgres:5432/app?sslmode=disable", "up"]
+    depends_on:
+      postgres: {condition: service_healthy}
+    restart: "no"
+
+  river-migrate:
+    profiles: [app]
+    image: app:local
+    build: &appbuild {context: .., dockerfile: deployments/Dockerfile}
+    command: ["migrate", "-direction", "up"]
+    entrypoint: ["/bin/worker"]
+    environment: &appenv
+      ENV: local
+      DATABASE_URL: postgres://app:app@postgres:5432/app?sslmode=disable
+      DIRECT_DATABASE_URL: postgres://app:app@postgres:5432/app?sslmode=disable
+      AUTH_TOKEN_KEY: ${AUTH_TOKEN_KEY:-000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f}
+      WEBHOOK_ACME_SECRET: ${WEBHOOK_ACME_SECRET:-local-only-webhook-secret}
+      DOCS_ENABLED: "true"
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    restart: "no"
+
+  api:
+    profiles: [app]
+    image: app:local
+    build: *appbuild
+    entrypoint: ["/bin/api"]
+    environment: *appenv
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      river-migrate: {condition: service_completed_successfully}
+    restart: unless-stopped
+
+  worker:
+    profiles: [app]
+    image: app:local
+    build: *appbuild
+    entrypoint: ["/bin/worker"]
+    environment: *appenv
+    ports:
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      river-migrate: {condition: service_completed_successfully}
+    restart: unless-stopped
+
 volumes:
   postgres_data:

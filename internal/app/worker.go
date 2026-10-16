@@ -2,12 +2,15 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sync"
 	"time"
 
 	"example.com/app/internal/config"
+	"example.com/app/internal/platform/httpx"
 	"example.com/app/internal/platform/idempotency"
 	"example.com/app/internal/platform/queue"
 	"example.com/app/internal/platform/store"
@@ -24,6 +27,9 @@ const (
 	workerConnHeadroom      = 4
 	idempotencyCleanupEvery = time.Hour
 	idempotencyKeyTTL       = 24 * time.Hour
+	workerReadyTimeout      = 2 * time.Second
+	workerHealthStopTimeout = 5 * time.Second
+	workerHealthHeaderLimit = 5 * time.Second
 )
 
 // RunWorker runs the River worker and the idempotency-key cleanup loop until
@@ -31,9 +37,16 @@ const (
 // closes the pool. River's Start context is deliberately not the signal
 // context: cancelling it would hard-stop jobs, so shutdown goes through Stop.
 func RunWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
+	workerCfg := queue.WorkerConfig{
+		Concurrency: cfg.WorkerConcurrency,
+		Queues:      cfg.WorkerQueues,
+		Logger:      logger,
+	}
 	pool, err := store.NewPool(ctx, store.PoolConfig{
-		URL:      cfg.DirectDatabaseURL,
-		MaxConns: int32(cfg.WorkerConcurrency) + workerConnHeadroom,
+		URL:             cfg.DirectDatabaseURL,
+		MaxConns:        int32(workerCfg.TotalWorkers()) + workerConnHeadroom,
+		MaxConnLifetime: cfg.DBMaxConnLifetime,
+		MaxConnIdleTime: cfg.DBMaxConnIdleTime,
 	})
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
@@ -52,11 +65,8 @@ func RunWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	orders.RegisterWorkers(workers, orders.NewRepo(pool, nil), orders.NewLogNotifier(logger))
 	// template:example:end orders
 
-	client, err := queue.NewWorkerClient(pool, queue.WorkerConfig{
-		Workers:     workers,
-		Concurrency: cfg.WorkerConcurrency,
-		Logger:      logger,
-	})
+	workerCfg.Workers = workers
+	client, err := queue.NewWorkerClient(pool, workerCfg)
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
 	}
@@ -76,6 +86,8 @@ func RunWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err := client.Start(context.WithoutCancel(ctx)); err != nil {
 		return fmt.Errorf("app: start worker: %w", err)
 	}
+	stopHealth := startWorkerHealth(ctx, cfg.WorkerHealthAddr, pool, logger)
+	defer stopHealth()
 	logger.InfoContext(ctx, "worker started", "concurrency", cfg.WorkerConcurrency)
 
 	<-ctx.Done()
@@ -115,4 +127,38 @@ func RunMigrate(ctx context.Context, url, direction string, logger *slog.Logger)
 	}
 	logger.InfoContext(ctx, "river migrations applied", "direction", direction)
 	return nil
+}
+
+// startWorkerHealth serves /healthz and /readyz so orchestrators can probe the
+// worker. It returns a stop function that shuts the listener down and waits for
+// it. An empty addr disables the listener.
+func startWorkerHealth(ctx context.Context, addr string, pool store.Pinging, logger *slog.Logger) func() {
+	if addr == "" {
+		return func() {}
+	}
+	mux := http.NewServeMux()
+	mux.Handle("GET /healthz", httpx.Healthz())
+	mux.Handle("GET /readyz", httpx.Readyz(logger, workerReadyTimeout, store.Pinger(pool)))
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: workerHealthHeaderLimit,
+		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.ErrorContext(ctx, "worker health listener failed", "error", err)
+		}
+	}()
+	return func() {
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), workerHealthStopTimeout)
+		defer cancel()
+		if err := srv.Shutdown(stopCtx); err != nil {
+			logger.ErrorContext(stopCtx, "worker health shutdown", "error", err)
+		}
+		<-done
+	}
 }

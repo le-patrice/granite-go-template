@@ -39,11 +39,27 @@ func NewWorkers() *river.Workers {
 type WorkerConfig struct {
 	Workers     *river.Workers
 	Concurrency int
-	Logger      *slog.Logger
+	// Queues optionally replaces the single default queue with named queues and
+	// their max concurrent jobs. Jobs choose a queue through InsertOpts.
+	Queues map[string]int
+	Logger *slog.Logger
+}
+
+// TotalWorkers returns how many jobs may run at once across all queues, which
+// is the number of database connections the workers need.
+func (c WorkerConfig) TotalWorkers() int {
+	if len(c.Queues) == 0 {
+		return c.Concurrency
+	}
+	total := 0
+	for _, n := range c.Queues {
+		total += n
+	}
+	return total
 }
 
 // NewWorkerClient returns a client that fetches and runs jobs on the default
-// queue. The pool should use the direct database URL because River relies on
+// queue, or on the named queues in cfg.Queues. The pool should use the direct database URL because River relies on
 // LISTEN/NOTIFY.
 func NewWorkerClient(pool *pgxpool.Pool, cfg WorkerConfig) (*river.Client[pgx.Tx], error) {
 	if cfg.Workers == nil || cfg.Concurrency < 1 {
@@ -51,6 +67,15 @@ func NewWorkerClient(pool *pgxpool.Pool, cfg WorkerConfig) (*river.Client[pgx.Tx
 	}
 	queues := map[string]river.QueueConfig{
 		river.QueueDefault: {MaxWorkers: cfg.Concurrency},
+	}
+	if len(cfg.Queues) > 0 {
+		queues = make(map[string]river.QueueConfig, len(cfg.Queues))
+		for name, n := range cfg.Queues {
+			if name == "" || n < 1 {
+				return nil, fmt.Errorf("queue: queue %q needs a name and a positive concurrency", name)
+			}
+			queues[name] = river.QueueConfig{MaxWorkers: n}
+		}
 	}
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Logger:  cfg.Logger,

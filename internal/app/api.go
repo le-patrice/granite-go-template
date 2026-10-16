@@ -109,7 +109,13 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		}
 	}()
 
-	pool, err := store.NewPool(ctx, store.PoolConfig{URL: cfg.DatabaseURL})
+	pool, err := store.NewPool(ctx, store.PoolConfig{
+		URL:             cfg.DatabaseURL,
+		MaxConns:        cfg.DBMaxConns,
+		MinConns:        cfg.DBMinConns,
+		MaxConnLifetime: cfg.DBMaxConnLifetime,
+		MaxConnIdleTime: cfg.DBMaxConnIdleTime,
+	})
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
 	}

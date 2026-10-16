@@ -38,3 +38,21 @@ func TestNewWorkerClientValidatesConfig(t *testing.T) {
 		t.Error("expected an error for zero concurrency")
 	}
 }
+
+func TestTotalWorkers(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  WorkerConfig
+		want int
+	}{
+		{"single queue", WorkerConfig{Concurrency: 10}, 10},
+		{"named queues win", WorkerConfig{Concurrency: 10, Queues: map[string]int{"default": 4, "webhooks": 3}}, 7},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.TotalWorkers(); got != tt.want {
+				t.Errorf("TotalWorkers = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}

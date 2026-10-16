@@ -99,3 +99,46 @@ jobs:
           go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
       - name: Run 4-way scaffold matrix
         run: make scaffold-smoke
+
+  image:
+    # Builds both images, scans them, and emits an SBOM. Fails on fixable HIGH/CRITICAL.
+    runs-on: ubuntu-latest
+    needs: verify
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build runtime image
+        run: docker build -f deployments/Dockerfile -t app:ci .
+      - name: Build migrate image
+        run: docker build -f deployments/Dockerfile --target migrate -t app-migrate:ci .
+      - name: Scan runtime image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: app:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Scan migrate image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: app-migrate:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: app:ci
+          format: spdx-json
+          output-file: sbom.spdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.spdx.json
+  kustomize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render production overlay
+        run: kubectl kustomize deployments/k8s/overlays/production > /dev/null

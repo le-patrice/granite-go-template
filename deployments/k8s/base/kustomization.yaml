@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Template-owned base. Customise through overlays, not by editing these files.
+resources:
+  - serviceaccount.yaml
+  - api.yaml
+  - worker.yaml
+  - migrate-job.yaml
+  - networkpolicy.yaml
+images:
+  - name: app
+    newName: ghcr.io/your-org/{{APP_NAME}}
+    newTag: latest
+  - name: app-migrate
+    newName: ghcr.io/your-org/{{APP_NAME}}-migrate
+    newTag: latest
+commonLabels:
+  app.kubernetes.io/part-of: "{{APP_NAME}}"

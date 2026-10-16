@@ -48,9 +48,14 @@ func NewPool(ctx context.Context, cfg PoolConfig) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
+// Pinging is the part of a pool that readiness needs. *pgxpool.Pool satisfies it.
+type Pinging interface {
+	Ping(ctx context.Context) error
+}
+
 // Pinger returns a readiness check that pings the database. Its signature
 // matches httpx.Check, so it can be passed to httpx.Readyz directly.
-func Pinger(pool *pgxpool.Pool) func(context.Context) error {
+func Pinger(pool Pinging) func(context.Context) error {
 	return func(ctx context.Context) error {
 		if err := pool.Ping(ctx); err != nil {
 			return fmt.Errorf("store: ping: %w", err)

@@ -44,3 +44,6 @@ cmd/seed/ project
 internal/users/ project
 internal/orders/ project
 internal/integrations/ project
+
+.gitbook.yaml template
+.github/ shared

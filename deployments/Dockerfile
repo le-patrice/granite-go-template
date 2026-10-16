@@ -12,6 +12,20 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/api ./c
  && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/worker ./cmd/worker \
  && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/seed ./cmd/seed
 
+# Migration image: `docker build --target migrate`. Runs goose against /migrations.
+FROM golang:alpine AS goose
+ENV GOTOOLCHAIN=auto
+ARG GOOSE_VERSION=v3.29.0
+RUN CGO_ENABLED=0 go install github.com/pressly/goose/v3/cmd/goose@${GOOSE_VERSION}
+
+FROM alpine:3 AS migrate
+RUN adduser -D -u 65532 nonroot
+COPY --from=goose /go/bin/goose /bin/goose
+COPY db/migrations /migrations
+USER nonroot:nonroot
+ENTRYPOINT ["/bin/goose"]
+
+# Runtime image: the default (last) target.
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/api /bin/api
 COPY --from=build /out/worker /bin/worker

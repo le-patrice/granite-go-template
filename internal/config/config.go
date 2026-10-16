@@ -59,6 +59,23 @@ type Config struct {
 	OtelEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 
 	WorkerConcurrency int `env:"WORKER_CONCURRENCY" envDefault:"10"`
+	// WorkerQueues optionally splits the worker into named River queues with a
+	// per-queue concurrency, for example "default:10,webhooks:5". Empty means a
+	// single default queue sized by WORKER_CONCURRENCY. A slow vendor on its own
+	// queue cannot starve the rest.
+	WorkerQueues map[string]int `env:"WORKER_QUEUES" envSeparator:","`
+	// WorkerHealthAddr serves /healthz and /readyz for the worker process so
+	// orchestrators can probe it. Empty disables the listener.
+	WorkerHealthAddr string `env:"WORKER_HEALTH_ADDR" envDefault:":8081"`
+
+	// Pool sizing for the API's pooled connection. Zero keeps the pgx default
+	// (max(4, CPUs)). Size MaxConns so replicas*MaxConns stays below the
+	// database or PgBouncer limit. Lifetimes recycle connections so failovers
+	// and DNS changes are picked up.
+	DBMaxConns        int32         `env:"DB_MAX_CONNS" envDefault:"0"`
+	DBMinConns        int32         `env:"DB_MIN_CONNS" envDefault:"0"`
+	DBMaxConnLifetime time.Duration `env:"DB_MAX_CONN_LIFETIME" envDefault:"30m"`
+	DBMaxConnIdleTime time.Duration `env:"DB_MAX_CONN_IDLE_TIME" envDefault:"5m"`
 }
 
 // Load reads the process environment, applies defaults, and validates every
@@ -150,6 +167,14 @@ func (c Config) validate() error {
 	if c.WorkerConcurrency < 1 {
 		add("WORKER_CONCURRENCY: must be at least 1")
 	}
+	for name, n := range c.WorkerQueues {
+		if name == "" || n < 1 {
+			add("WORKER_QUEUES: queue %q needs a name and a concurrency of at least 1", name)
+		}
+	}
+	if c.DBMaxConns < 0 || c.DBMinConns < 0 || (c.DBMaxConns > 0 && c.DBMinConns > c.DBMaxConns) {
+		add("DB_MAX_CONNS/DB_MIN_CONNS: must be non-negative and min must not exceed max")
+	}
 	if c.OtelEndpoint != "" {
 		u, err := url.Parse(c.OtelEndpoint)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
@@ -184,6 +209,8 @@ func (c Config) LogValue() slog.Value {
 		slog.Int("trusted_proxies", len(c.TrustedProxies)),
 		slog.Bool("otel_enabled", c.OtelEndpoint != ""),
 		slog.Int("worker_concurrency", c.WorkerConcurrency),
+		slog.Int("worker_queues", len(c.WorkerQueues)),
+		slog.Int("db_max_conns", int(c.DBMaxConns)),
 		slog.Float64("rate_limit_rps", c.RateLimitRPS),
 		slog.Int("rate_limit_burst", c.RateLimitBurst),
 	)
