@@ -28,7 +28,7 @@ Status values: pending, pass, fail.
 | 4.b | ratelimit, users, cmd/seed | pass | make lint (0 issues), depguard rules proven, make test, make test-integration, seed-admin, live auth & 429 probes | Level 2 (Identity) complete |
 | 5.a | platform/queue, orders example | pass | make sqlc, sqlc diff (clean), make lint (0 issues), arch-check (ok), make test | |
 | 5.b | Jobs, app/worker.go, cmd/worker | pass | migrate-verify (goose + river up/down/up), make test-integration, live order + worker outbox probe | |
-| 6 | Guards | pending | | |
+| 6 | Guards | pass | make lint (0 issues), arch-check (ok), make test, make test-integration, live idempotent order & 429 probes | |
 | 7.a | platform/webhook | pending | | |
 | 7.b | platform/outbound, integrations/acme | pending | | |
 | 8.a | OpenAPI, deployments, perf, new-feature | pending | | |
@@ -100,3 +100,10 @@ Each line here becomes an ADR in Phase 9.
 58. Orders list uses keyset pagination (`WHERE ... id < cursor ORDER BY id DESC LIMIT n`, never `OFFSET`), fetching `size+1` rows to compute `NextCursor`.
 59. `RunWorker` starts River with `context.WithoutCancel(ctx)` and shuts down via `client.Stop` (20s drain) with fallback to `StopAndCancel` before closing the pool.
 60. Example wiring in `internal/app/api.go` and `internal/app/worker.go` is wrapped in `// template:example:begin orders` and `// template:example:end orders` markers.
+61. The sqlc-backed idempotency store lives in `internal/app`, not `platform/idempotency`, because `arch-check` forbids `platform` importing `internal/store/sqlc`.
+62. The request hash is SHA-256 over method, request URI, and body. Reusing a key on another endpoint or with another body returns 422. Scope is supplied by a `Scope` function so `platform/idempotency` does not import `platform/auth`.
+63. Responses with status >= 500, responses larger than `MaxBodyBytes`, and panics release the key so the client can retry. Stored responses keep a JSON envelope with `Content-Type` and `Location` headers and replays set `Idempotent-Replayed: true`.
+64. Concurrent duplicates return 409 with `Retry-After: 1`. Abandoned in-flight rows are deleted by `idempotency.Cleanup`, which the worker runs hourly with a 24h TTL.
+65. The general per-IP limiter (`RATE_LIMIT_RPS`, `RATE_LIMIT_BURST`) is the last step of the global middleware chain (after metrics) so 429s are counted and carry a request ID.
+66. `newChain` and `chainDeps` were extracted in `internal/app/api.go` so the chain order and limiter behavior are unit-tested without starting a server.
+67. Files that are wholly an example outside `internal/orders/` carry `// template:example:file orders` so `strip-examples` deletes them (`internal/app/idempotency_orders_integration_test.go`).

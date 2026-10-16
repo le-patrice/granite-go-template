@@ -6,9 +6,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/time/rate"
 
 	"example.com/app/internal/config"
 	"example.com/app/internal/platform/auth"
@@ -20,6 +22,7 @@ import (
 
 	// template:example:begin orders
 	"example.com/app/internal/orders"
+	"example.com/app/internal/platform/idempotency"
 	"example.com/app/internal/platform/queue"
 	// template:example:end orders
 )
@@ -60,6 +63,28 @@ func newIdentity(cfg config.Config, pool *pgxpool.Pool, logger *slog.Logger) (id
 		Logger:     logger,
 	})
 	return identity{users: svc, tokens: tokens}, nil
+}
+
+// chainDeps are the inputs of the global middleware chain.
+type chainDeps struct {
+	logger  *slog.Logger
+	proxies httpx.TrustedProxies
+	prov    *telemetry.Provider
+	metrics *httpx.Metrics
+	limiter *ratelimit.Limiter
+}
+
+// newChain wraps the router in the global middleware, in the specified order:
+// recover, request ID, real IP, telemetry and log, metrics, rate limit.
+func newChain(router http.Handler, d chainDeps) http.Handler {
+	return httpx.Chain(router,
+		httpx.Recover(d.logger),
+		httpx.RequestID(),
+		httpx.RealIP(d.proxies),
+		httpx.Telemetry(d.logger, d.prov.TracerProvider, d.prov.Propagator),
+		d.metrics.Middleware(),
+		ratelimit.Middleware(d.limiter, ratelimit.ByClientIP),
+	)
 }
 
 // RunAPI builds the HTTP stack and serves until ctx is cancelled, then drains
@@ -107,6 +132,15 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
 	}
+	generalLimiter, err := ratelimit.New(ratelimit.Config{
+		Rate:    rate.Limit(cfg.RateLimitRPS),
+		Burst:   cfg.RateLimitBurst,
+		IdleTTL: limiterIdleTTL,
+		MaxKeys: limiterMaxKeys,
+	})
+	if err != nil {
+		return fmt.Errorf("app: %w", err)
+	}
 
 	router := httpx.NewRouter()
 	router.Handle("GET /healthz", httpx.Healthz())
@@ -124,20 +158,28 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
 	}
+	idempotent, err := idempotency.Middleware(idempotency.Config{
+		Store:  newIdempotencyStore(pool),
+		Scope:  principalScope,
+		Logger: logger,
+	})
+	if err != nil {
+		return fmt.Errorf("app: %w", err)
+	}
 	orders.NewHandler(orders.NewService(orders.NewRepo(pool, jobs)), logger).Routes(
 		router,
 		auth.RequireAuth(ids.tokens),
-		nil,
+		idempotent,
 	)
 	// template:example:end orders
 
-	handler := httpx.Chain(router,
-		httpx.Recover(logger),
-		httpx.RequestID(),
-		httpx.RealIP(proxies),
-		httpx.Telemetry(logger, prov.TracerProvider, prov.Propagator),
-		metrics.Middleware(),
-	)
+	handler := newChain(router, chainDeps{
+		logger:  logger,
+		proxies: proxies,
+		prov:    prov,
+		metrics: metrics,
+		limiter: generalLimiter,
+	})
 
 	srv := httpx.NewServer(httpx.ServerConfig{
 		Addr:    cfg.Addr,
@@ -152,3 +194,14 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "api stopped")
 	return nil
 }
+
+// template:example:begin orders
+// principalScope scopes idempotency keys to the authenticated user.
+func principalScope(r *http.Request) string {
+	if principal, ok := auth.PrincipalFrom(r.Context()); ok {
+		return principal.UserID.String()
+	}
+	return ""
+}
+
+// template:example:end orders

@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"example.com/app/internal/config"
+	"example.com/app/internal/platform/idempotency"
 	"example.com/app/internal/platform/queue"
 	"example.com/app/internal/platform/store"
 
@@ -16,15 +18,17 @@ import (
 )
 
 const (
-	workerStopTimeout   = 20 * time.Second
-	workerCancelTimeout = 5 * time.Second
-	workerConnHeadroom  = 4
+	workerStopTimeout       = 20 * time.Second
+	workerCancelTimeout     = 5 * time.Second
+	workerConnHeadroom      = 4
+	idempotencyCleanupEvery = time.Hour
+	idempotencyKeyTTL       = 24 * time.Hour
 )
 
-// RunWorker runs the River worker until ctx is cancelled, then stops fetching,
-// drains running jobs, and only then closes the pool. River's Start context is
-// deliberately not the signal context: cancelling it would hard-stop jobs, so
-// shutdown goes through Stop instead.
+// RunWorker runs the River worker and the idempotency-key cleanup loop until
+// ctx is cancelled, then stops fetching, drains running jobs, and only then
+// closes the pool. River's Start context is deliberately not the signal
+// context: cancelling it would hard-stop jobs, so shutdown goes through Stop.
 func RunWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	pool, err := store.NewPool(ctx, store.PoolConfig{
 		URL:      cfg.DirectDatabaseURL,
@@ -48,6 +52,19 @@ func RunWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
 	}
+
+	var cleanup sync.WaitGroup
+	cleanupCtx, stopCleanup := context.WithCancel(context.WithoutCancel(ctx))
+	cleanup.Add(1)
+	go func() {
+		defer cleanup.Done()
+		idempotency.Cleanup(cleanupCtx, newIdempotencyStore(pool), idempotencyCleanupEvery, idempotencyKeyTTL, logger)
+	}()
+	defer func() {
+		stopCleanup()
+		cleanup.Wait()
+	}()
+
 	if err := client.Start(context.WithoutCancel(ctx)); err != nil {
 		return fmt.Errorf("app: start worker: %w", err)
 	}
