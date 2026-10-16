@@ -1,3 +1,4 @@
+-- template:example:file orders
 -- name: CreateOrder :one
 INSERT INTO orders (owner_id, reference, amount_minor, currency)
 VALUES (sqlc.arg(owner_id), sqlc.arg(reference), sqlc.arg(amount_minor), sqlc.arg(currency))
