@@ -20,8 +20,8 @@ Status values: pending, pass, fail.
 |-------|------|--------|-------------|-------|
 | 0 | Setup | pass | all tools verified (go 1.27.1, golangci-lint v2.14.0, sqlc v1.31.1, goose v3.29.0, govulncheck, docker 29.7.2, compose v5.4.0, k6 v1.4.0) | Level 1 (Foundation) |
 | 1 | Skeleton | pass | go build, go vet, golangci-lint config verify, make lint (0 issues), make arch-check (ok) | Adds `internal/platform/doc.go` as a lint anchor |
-| 2.a | Config, telemetry, app/api.go, cmd/api | pending | | |
-| 2.b | httpx | pending | | |
+| 2.a | Config, telemetry, app/api.go, cmd/api | pass | go vet, make lint (0 issues), make test, fail-fast env check, live API probe | |
+| 2.b | httpx | pass | go vet, make lint (0 issues), make arch-check (ok), make test, /healthz, /readyz, /metrics | |
 | 3.a | Core migrations, queries, sqlc | pending | | |
 | 3.b | Store pool, tx, storetest | pending | | |
 | 4.a | platform/auth | pending | | |
@@ -53,3 +53,15 @@ Each line here becomes an ADR in Phase 9.
 11. `ci.yml` will be extended in Phase 8.b to add `scaffold-smoke`.
 12. The k6 entry script will be `perf/smoke.js`.
 13. No `.gitkeep` files, because later phases populate the directories.
+14. The `{{APP_NAME}}` token may also appear inside Go string literals (the `SERVICE_NAME` default). `init.sh` rewrites it in every file type.
+15. The config package parses with `caarlos0/env`, then runs a separate validator that joins every invalid field with `errors.Join`.
+16. Config exposes `LogValue` (slog redaction) and `TokenKey()`. `DATABASE_URL`, the token key, and the webhook secret are never logged.
+17. `WEBHOOK_ACME_SECRET` sits inside `template:example` markers in both `config.go` and `.env.example`.
+18. No OpenTelemetry globals are set. `telemetry.Setup` returns a `Provider` that is passed explicitly to the middleware. With no endpoint it is a no-op that still propagates incoming trace context.
+19. Only traces go through OTLP. Metrics are served by Prometheus on `/metrics` from a private registry (no global registry).
+20. `Router` wraps `ServeMux` and records the matched pattern in a per-request holder so route labels work on Go 1.22+ and raw paths never leak into metrics, logs, or span names.
+21. Middleware order is Recover, RequestID, RealIP, Telemetry, Metrics.
+22. Telemetry and Metrics recover a panic only to record it as a 500, then re-raise it for Recover to answer.
+23. Default `ServeMux` 404 and 405 responses remain plain text so 405 Method Not Allowed is not masked by a catch-all route.
+24. `http.Server.ErrorLog` routes through slog via `slog.NewLogLogger`, so the `log` package is never imported directly.
+25. In HTTP test files, `httptest.NewRequestWithContext` is used instead of `httptest.NewRequest` to satisfy `noctx` in `golangci-lint` v2.14.0, and `ctx := r.Context()` is bound outside `defer` closures in `Recover` and `Metrics.Middleware` to satisfy `contextcheck`.
