@@ -24,8 +24,8 @@ Status values: pending, pass, fail.
 | 2.b | httpx | pass | go vet, make lint (0 issues), make arch-check (ok), make test, /healthz, /readyz, /metrics | |
 | 3.a | Core migrations, queries, sqlc | pass | make sqlc, sqlc diff (clean), migrate-verify (up/down/up v4), make migrate | |
 | 3.b | Store pool, tx, storetest | pass | make lint (0 issues), arch-check (ok), make test, make test-integration, /readyz 200->503->200 | Level 1 (Foundation) complete |
-| 4.a | platform/auth | pending | | |
-| 4.b | ratelimit, users, cmd/seed | pending | | |
+| 4.a | platform/auth | pass | go vet, make lint (0 issues), make test (argon2id, paseto v4.local, RBAC) | |
+| 4.b | ratelimit, users, cmd/seed | pass | make lint (0 issues), depguard rules proven, make test, make test-integration, seed-admin, live auth & 429 probes | Level 2 (Identity) complete |
 | 5.a | platform/queue, orders example | pending | | |
 | 5.b | Jobs, app/worker.go, cmd/worker | pending | | |
 | 6 | Guards | pending | | |
@@ -80,3 +80,15 @@ Each line here becomes an ADR in Phase 9.
 38. `goleak` is not used in `storetest` packages because the Docker client and container reaper start goroutines that would be reported as leaks. It remains in `httpx`.
 39. `internal/app/api.go` is extended with the pool, the `/readyz` DB check, and `pool.Close()` after the server drains. Deferred calls close the pool before flushing telemetry.
 40. `go mod tidy` after `make sqlc` is required so tidy sees the generated imports.
+41. Passwords: argon2id with PHC strings (`$argon2id$v=19$m=..,t=..,p=..$salt$hash`), 16-byte random salt, 32-byte output, `subtle.ConstantTimeCompare`. Verification uses the parameters embedded in the stored hash, and `NeedsRehash` compares them with the current config.
+42. Passwords must be 12 to 1024 characters (minimum counted in runes, cap in bytes). `users` and `auth` both enforce it.
+43. The unknown-user path calls `VerifyDummy` against a precomputed hash. Unknown user, wrong password, and disabled account all return `ErrInvalidCredentials`.
+44. Access tokens are PASETO v4.local with subject, role, issued-at, not-before (`SetNotBefore(issuedAt)` required by `paseto.ValidAt`), expiry, and a random token ID. Every parse failure returns `ErrInvalidToken`.
+45. Refresh tokens are 32 random bytes in base64url; only the SHA-256 hash is stored. Rotation locks the row (`FOR UPDATE`), applies `RefreshToken.Verdict`, marks the token rotated, and inserts its successor in the same family in one transaction. Reusing a rotated token revokes the family and commits that revocation.
+46. Refresh for a disabled or deleted user revokes the family and returns `ErrInvalidToken`.
+47. `/v1/auth/logout` takes the refresh token in the body, needs no access token, and is idempotent.
+48. Domain files `users.go` and `service.go` import only stdlib and `google/uuid`.
+49. `ratelimit.ByClientIP` uses `httpx.ClientIPFrom` when present and strips the port with `net.SplitHostPort` when falling back to `r.RemoteAddr`.
+50. The limiter starts no goroutines, sweeping idle keys lazily from `Allow` and bounding memory with `MaxKeys`.
+51. `internal/app/seed.go` is the composition root for `cmd/seed`, using `DIRECT_DATABASE_URL` and reading `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD`.
+52. Both `depguard` rules (`domain-purity` and `features-no-vendors`) were proven with temporary violation files in the Phase 4 gate.
