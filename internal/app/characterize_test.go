@@ -202,6 +202,7 @@ func (r *charOrderRepo) ListAll(_ context.Context, before int64, limit int) ([]o
 	}
 	return out, nil
 }
+
 // template:example:end orders
 
 type testHarness struct {
@@ -443,4 +444,5 @@ func TestCharacterize_Orders(t *testing.T) {
 		t.Errorf("list mismatch: %+v", listRes)
 	}
 }
+
 // template:example:end orders
