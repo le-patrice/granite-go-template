@@ -75,16 +75,16 @@ vuln: ## Scan dependencies with govulncheck
 
 new-feature: ## Scaffold a feature: make new-feature name=billing
 	@test -n "$(name)" || { echo "usage: make new-feature name=<feature>" >&2; exit 1; }
-	@NAME="$(name)" bash scripts/new-feature.sh
+	go run ./cmd/scaffold new-feature --name="$(name)"
 
 init: ## Scaffold a project (once): make init NAME=<app> MODULE=<module> EXAMPLES=keep|strip
-	@NAME="$(NAME)" MODULE="$(MODULE)" EXAMPLES="$(EXAMPLES)" bash scripts/init.sh
+	go run ./cmd/scaffold init --name="$(NAME)" --module="$(MODULE)" --examples="$(EXAMPLES)"
 
 strip-examples: ## Remove example code: make strip-examples CONFIRM=yes
-	@CONFIRM="$(CONFIRM)" bash scripts/strip-examples.sh
+	go run ./cmd/scaffold strip-examples $(if $(filter yes,$(CONFIRM)),--confirm,)
 
 template-diff: ## Show upstream template changes: make template-diff TAG=<version>
-	@TAG="$(TAG)" bash scripts/template-diff.sh
+	go run ./cmd/scaffold template-diff --tag="$(TAG)"
 
 add-module: ## Adopt an opt-in module: make add-module NAME=<module>
 	@test -n "$(NAME)" || { echo "usage: make add-module NAME=<module>" >&2; exit 1; }
