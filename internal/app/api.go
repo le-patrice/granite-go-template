@@ -17,6 +17,11 @@ import (
 	"example.com/app/internal/platform/store"
 	"example.com/app/internal/platform/telemetry"
 	"example.com/app/internal/users"
+
+	// template:example:begin orders
+	"example.com/app/internal/orders"
+	"example.com/app/internal/platform/queue"
+	// template:example:end orders
 )
 
 const (
@@ -113,6 +118,18 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		ratelimit.Middleware(authLimiter, ratelimit.ByClientIP),
 		auth.RequireAuth(ids.tokens),
 	)
+
+	// template:example:begin orders
+	jobs, err := queue.NewInsertClient(pool)
+	if err != nil {
+		return fmt.Errorf("app: %w", err)
+	}
+	orders.NewHandler(orders.NewService(orders.NewRepo(pool, jobs)), logger).Routes(
+		router,
+		auth.RequireAuth(ids.tokens),
+		nil,
+	)
+	// template:example:end orders
 
 	handler := httpx.Chain(router,
 		httpx.Recover(logger),

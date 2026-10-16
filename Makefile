@@ -30,16 +30,20 @@ up: ## Start local Postgres
 down: ## Stop local Postgres
 	$(COMPOSE) down
 
-migrate: ## Apply migrations using the direct database URL
+migrate: ## Apply app and River migrations using the direct database URL
 	@$(LOADENV) : "$${DATABASE_URL:?DATABASE_URL is required}"; \
-	goose -dir $(MIGRATIONS_DIR) postgres "$${DIRECT_DATABASE_URL:-$$DATABASE_URL}" up
+	goose -dir $(MIGRATIONS_DIR) postgres "$${DIRECT_DATABASE_URL:-$$DATABASE_URL}" up && \
+	go run ./cmd/worker migrate -direction up
 
-migrate-verify: ## Apply up, down, up on a throwaway database
+migrate-verify: ## Apply up, down, up (app and River) on a throwaway database
 	$(PSQL) -c "DROP DATABASE IF EXISTS $(VERIFY_DB)"
 	$(PSQL) -c "CREATE DATABASE $(VERIFY_DB)"
 	goose -dir $(MIGRATIONS_DIR) postgres "$(VERIFY_URL)" up
+	go run ./cmd/worker migrate -direction up -url "$(VERIFY_URL)"
+	go run ./cmd/worker migrate -direction down -url "$(VERIFY_URL)"
 	goose -dir $(MIGRATIONS_DIR) postgres "$(VERIFY_URL)" down-to 0
 	goose -dir $(MIGRATIONS_DIR) postgres "$(VERIFY_URL)" up
+	go run ./cmd/worker migrate -direction up -url "$(VERIFY_URL)"
 	$(PSQL) -c "DROP DATABASE $(VERIFY_DB)"
 
 sqlc: ## Regenerate typed queries (commit the result)

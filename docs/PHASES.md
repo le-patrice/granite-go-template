@@ -26,8 +26,8 @@ Status values: pending, pass, fail.
 | 3.b | Store pool, tx, storetest | pass | make lint (0 issues), arch-check (ok), make test, make test-integration, /readyz 200->503->200 | Level 1 (Foundation) complete |
 | 4.a | platform/auth | pass | go vet, make lint (0 issues), make test (argon2id, paseto v4.local, RBAC) | |
 | 4.b | ratelimit, users, cmd/seed | pass | make lint (0 issues), depguard rules proven, make test, make test-integration, seed-admin, live auth & 429 probes | Level 2 (Identity) complete |
-| 5.a | platform/queue, orders example | pending | | |
-| 5.b | Jobs, app/worker.go, cmd/worker | pending | | |
+| 5.a | platform/queue, orders example | pass | make sqlc, sqlc diff (clean), make lint (0 issues), arch-check (ok), make test | |
+| 5.b | Jobs, app/worker.go, cmd/worker | pass | migrate-verify (goose + river up/down/up), make test-integration, live order + worker outbox probe | |
 | 6 | Guards | pending | | |
 | 7.a | platform/webhook | pending | | |
 | 7.b | platform/outbound, integrations/acme | pending | | |
@@ -92,3 +92,11 @@ Each line here becomes an ADR in Phase 9.
 50. The limiter starts no goroutines, sweeping idle keys lazily from `Allow` and bounding memory with `MaxKeys`.
 51. `internal/app/seed.go` is the composition root for `cmd/seed`, using `DIRECT_DATABASE_URL` and reading `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD`.
 52. Both `depguard` rules (`domain-purity` and `features-no-vendors`) were proven with temporary violation files in the Phase 4 gate.
+53. River's migrations run through `cmd/worker migrate -direction up|down [-url ...]`, using the `rivermigrate` library pinned in `go.mod`. `make migrate` and `make migrate-verify` invoke it, and `storetest` applies it via `WithMigration(queue.MigrateUp)`.
+54. `platform/queue` provides an insert-only client for the API and a worker client for `cmd/worker`. The worker uses `DIRECT_DATABASE_URL` because River uses `LISTEN/NOTIFY`.
+55. `orders` writes the order and enqueues its `order.created` River job in one transaction (`store.InTx` + `jobs.InsertTx`). `orders/service.go` imports neither `pgx` nor `river`.
+56. Jobs are at-least-once; `OrderCreatedWorker` cancels the job (`river.JobCancel`) if the order no longer exists and returns errors otherwise so River retries.
+57. Ownership is enforced in `orders/service.go`: members read only their own orders (404 on others' orders), admins read all.
+58. Orders list uses keyset pagination (`WHERE ... id < cursor ORDER BY id DESC LIMIT n`, never `OFFSET`), fetching `size+1` rows to compute `NextCursor`.
+59. `RunWorker` starts River with `context.WithoutCancel(ctx)` and shuts down via `client.Stop` (20s drain) with fallback to `StopAndCancel` before closing the pool.
+60. Example wiring in `internal/app/api.go` and `internal/app/worker.go` is wrapped in `// template:example:begin orders` and `// template:example:end orders` markers.

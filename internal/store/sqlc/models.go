@@ -28,6 +28,16 @@ type InboundEvent struct {
 	ReceivedAt time.Time
 }
 
+type Order struct {
+	ID          int64
+	OwnerID     uuid.UUID
+	Reference   string
+	AmountMinor int64
+	Currency    string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type RefreshToken struct {
 	ID        uuid.UUID
 	UserID    uuid.UUID
