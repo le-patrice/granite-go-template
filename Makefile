@@ -19,7 +19,7 @@ LOADENV = set -a; if [ -f .env ]; then . ./.env; fi; set +a;
 
 .PHONY: help up down migrate migrate-verify sqlc run-api run-worker seed-admin \
 	test test-integration lint arch-check vuln new-feature init strip-examples \
-	template-diff add-module perf scaffold-smoke
+	template-diff add-module perf scaffold-smoke openapi openapi-check
 
 help: ## List targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -96,3 +96,14 @@ perf: ## Run the k6 smoke scenario
  
 scaffold-smoke: ## Run 4-way scaffold matrix (fresh/gonew x keep/strip)
 	bash scripts/scaffold-smoke.sh
+
+openapi: ## Generate api/openapi.yaml from Huma models and route definitions
+	go run ./cmd/openapi -o api/openapi.yaml
+
+openapi-check: ## Verify api/openapi.yaml is up to date and generation is deterministic
+	@tmp1=$$(mktemp); tmp2=$$(mktemp); \
+	trap 'rm -f "$$tmp1" "$$tmp2"' EXIT; \
+	go run ./cmd/openapi -o "$$tmp1" && \
+	go run ./cmd/openapi -o "$$tmp2" && \
+	cmp -s "$$tmp1" "$$tmp2" || { echo "openapi generation is non-deterministic" >&2; exit 1; }; \
+	diff -u api/openapi.yaml "$$tmp1" || { echo "api/openapi.yaml is out of date; run 'make openapi' and commit" >&2; exit 1; }
