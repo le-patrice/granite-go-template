@@ -11,6 +11,7 @@ import (
 	"example.com/app/internal/platform/idempotency"
 	"example.com/app/internal/platform/queue"
 	"example.com/app/internal/platform/store"
+	"example.com/app/internal/platform/webhook"
 
 	// template:example:begin orders
 	"example.com/app/internal/orders"
@@ -40,6 +41,13 @@ func RunWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	defer pool.Close()
 
 	workers := queue.NewWorkers()
+
+	processors := map[string]webhook.Processor{}
+	// template:example:begin acme
+	processors["acme"] = webhook.LogProcessor(logger)
+	// template:example:end acme
+	webhook.RegisterWorker(workers, pool, processors)
+
 	// template:example:begin orders
 	orders.RegisterWorkers(workers, orders.NewRepo(pool, nil), orders.NewLogNotifier(logger))
 	// template:example:end orders

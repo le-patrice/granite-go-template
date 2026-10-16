@@ -15,15 +15,19 @@ import (
 	"example.com/app/internal/config"
 	"example.com/app/internal/platform/auth"
 	"example.com/app/internal/platform/httpx"
+	"example.com/app/internal/platform/queue"
 	"example.com/app/internal/platform/ratelimit"
 	"example.com/app/internal/platform/store"
 	"example.com/app/internal/platform/telemetry"
+	"example.com/app/internal/platform/webhook"
 	"example.com/app/internal/users"
 
+	// template:example:begin acme
+	"example.com/app/internal/integrations/acme"
+	// template:example:end acme
 	// template:example:begin orders
 	"example.com/app/internal/orders"
 	"example.com/app/internal/platform/idempotency"
-	"example.com/app/internal/platform/queue"
 	// template:example:end orders
 )
 
@@ -123,6 +127,10 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("app: identity: %w", err)
 	}
+	jobs, err := queue.NewInsertClient(pool)
+	if err != nil {
+		return fmt.Errorf("app: %w", err)
+	}
 	authLimiter, err := ratelimit.New(ratelimit.Config{
 		Rate:    ratelimit.PerMinute(cfg.AuthRateLimitPerMin),
 		Burst:   cfg.AuthRateLimitPerMin,
@@ -142,10 +150,29 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return fmt.Errorf("app: %w", err)
 	}
 
+	sources := map[string]webhook.Source{}
+	// template:example:begin acme
+	acmeSource, err := acme.WebhookSource(cfg.WebhookAcmeSecret)
+	if err != nil {
+		return fmt.Errorf("app: acme webhook: %w", err)
+	}
+	sources["acme"] = acmeSource
+	// template:example:end acme
+	ingest, err := webhook.Ingest(webhook.Config{
+		DB:      pool,
+		Jobs:    jobs,
+		Sources: sources,
+		Logger:  logger,
+	})
+	if err != nil {
+		return fmt.Errorf("app: %w", err)
+	}
+
 	router := httpx.NewRouter()
 	router.Handle("GET /healthz", httpx.Healthz())
 	router.Handle("GET /readyz", httpx.Readyz(logger, readyTimeout, store.Pinger(pool)))
 	router.Handle("GET /metrics", metrics.Handler())
+	router.Handle("POST /v1/webhooks/{source}", ingest)
 
 	users.NewHandler(ids.users, logger).Routes(
 		router,
@@ -154,10 +181,6 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	)
 
 	// template:example:begin orders
-	jobs, err := queue.NewInsertClient(pool)
-	if err != nil {
-		return fmt.Errorf("app: %w", err)
-	}
 	idempotent, err := idempotency.Middleware(idempotency.Config{
 		Store:  newIdempotencyStore(pool),
 		Scope:  principalScope,

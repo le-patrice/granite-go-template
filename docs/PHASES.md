@@ -29,8 +29,8 @@ Status values: pending, pass, fail.
 | 5.a | platform/queue, orders example | pass | make sqlc, sqlc diff (clean), make lint (0 issues), arch-check (ok), make test | |
 | 5.b | Jobs, app/worker.go, cmd/worker | pass | migrate-verify (goose + river up/down/up), make test-integration, live order + worker outbox probe | |
 | 6 | Guards | pass | make lint (0 issues), arch-check (ok), make test, make test-integration, live idempotent order & 429 probes | |
-| 7.a | platform/webhook | pending | | |
-| 7.b | platform/outbound, integrations/acme | pending | | |
+| 7.a | platform/webhook | pass | make lint (0 issues), arch-check (ok), make test, make test-integration | |
+| 7.b | platform/outbound, integrations/acme | pass | make lint (0 issues), arch-check (ok), make test, make test-integration, live webhook + worker probe | Level 3 (Reliability) complete |
 | 8.a | OpenAPI, deployments, perf, new-feature | pending | | |
 | 8.b | init, strip-examples, template-diff, scaffold-smoke | pending | | |
 | 9 | Guidance and migration kit | pending | | |
@@ -107,3 +107,13 @@ Each line here becomes an ADR in Phase 9.
 65. The general per-IP limiter (`RATE_LIMIT_RPS`, `RATE_LIMIT_BURST`) is the last step of the global middleware chain (after metrics) so 429s are counted and carry a request ID.
 66. `newChain` and `chainDeps` were extracted in `internal/app/api.go` so the chain order and limiter behavior are unit-tested without starting a server.
 67. Files that are wholly an example outside `internal/orders/` carry `// template:example:file orders` so `strip-examples` deletes them (`internal/app/idempotency_orders_integration_test.go`).
+68. `webhook.Ingest` checks in order: unknown source (404), body size (413), signature (403), JSON and event ID (400), persistence (503). No database call happens before signature verification.
+69. Each webhook source supplies a `Verifier` (constant-time `hmac.Equal`) and an `ExternalID` extractor. Duplicate `(source, external_id)` hits `ON CONFLICT DO NOTHING`, stores and enqueues nothing, and returns 200.
+70. The event row and its `webhook.event` job are written in one transaction with plain SQL through `store.InTx`. If enqueue fails, the event rolls back and returns 503 so the sender retries.
+71. `webhook.Worker` loads the stored event and dispatches to the `Processor` registered for its source. Missing events or sources with no processor cancel the job (`river.JobCancel`).
+72. The webhook worker is registered as core wiring, so `cmd/worker` always has at least one River worker even after `strip-examples`.
+73. `platform/outbound` applies per-attempt timeouts from the caller's context, releases the timeout on response body `Close`, and retries idempotent methods (or requests with `Idempotency-Key`) with full-jitter exponential backoff when the body is replayable.
+74. Retried outcomes are transport errors, 429, 502, 503, and 504. `Retry-After` (seconds or HTTP date) is honored on 429 and 503 up to `MaxRetryAfter`; 500 is not retried.
+75. The circuit breaker counts consecutive failures (transport errors and status >= 500, not 429), opens for `OpenFor`, and allows one half-open probe. Caller-cancelled attempts do not count as failures.
+76. `integrations/acme` verifies `X-Acme-Signature: sha256=<hex HMAC-SHA256>` with a minimum 16-char secret and provides a reference outbound client built on `platform/outbound`.
+77. Acme wiring in `internal/app` sits inside `// template:example:begin acme` and `// template:example:end acme` markers.
