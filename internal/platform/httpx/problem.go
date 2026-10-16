@@ -11,11 +11,32 @@ const problemContentType = "application/problem+json"
 
 // Problem is an RFC 9457 problem details object.
 type Problem struct {
-	Type      string `json:"type"`
-	Title     string `json:"title"`
-	Status    int    `json:"status"`
-	Detail    string `json:"detail,omitempty"`
-	RequestID string `json:"request_id,omitempty"`
+	Type      string         `json:"type"`
+	Title     string         `json:"title"`
+	Status    int            `json:"status"`
+	Detail    string         `json:"detail,omitempty"`
+	RequestID string         `json:"request_id,omitempty"`
+	Errors    []*ErrorDetail `json:"errors,omitempty"`
+}
+
+// ErrorDetail describes a field-level error or validation failure.
+type ErrorDetail struct {
+	Message  string `json:"message,omitempty"`
+	Location string `json:"location,omitempty"`
+	Value    any    `json:"value,omitempty"`
+}
+
+// GetStatus returns the HTTP status code.
+func (p *Problem) GetStatus() int {
+	return p.Status
+}
+
+// Error returns a string summary of the problem details.
+func (p *Problem) Error() string {
+	if p.Detail != "" {
+		return p.Detail
+	}
+	return p.Title
 }
 
 // WriteProblem writes an application/problem+json response. For 5xx statuses
