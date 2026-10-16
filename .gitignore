@@ -1,0 +1,25 @@
+
+# Binaries and build output
+/bin/
+/dist/
+/tmp/
+*.exe
+*.test
+*.out
+
+# Local configuration and secrets
+.env
+.env.local
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+
+# Coverage and profiling
+coverage.txt
+coverage.html
+*.prof
+
+# k6 output
+perf/results/

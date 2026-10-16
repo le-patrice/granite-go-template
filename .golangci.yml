@@ -1,0 +1,74 @@
+version: "2"
+
+run:
+  timeout: 5m
+  build-tags:
+    - integration
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - contextcheck
+    - depguard
+    - errorlint
+    - forbidigo
+    - gochecknoinits
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+  settings:
+    depguard:
+      rules:
+        domain-purity:
+          files:
+            - "**/internal/*/*.go"
+            - "!**/internal/*/handler.go"
+            - "!**/internal/*/repo.go"
+            - "!**/internal/*/jobs.go"
+            - "!**/internal/app/*.go"
+            - "!**/internal/config/*.go"
+            - "!**/internal/platform/*.go"
+            - "!$test"
+          deny:
+            - pkg: github.com/jackc/pgx
+              desc: domain and service files must not import the database driver
+            - pkg: github.com/riverqueue/river
+              desc: domain and service files must not import the job queue
+            - pkg: net/http
+              desc: domain and service files must not import net/http
+        features-no-vendors:
+          files:
+            - "**/internal/**/*.go"
+            - "!**/internal/app/**"
+            - "!**/internal/integrations/**"
+          deny:
+            - pkg: example.com/app/internal/integrations
+              desc: only app and integrations may import vendor packages
+    forbidigo:
+      forbid:
+        - pattern: '^fmt\.Print(f|ln)?$'
+          msg: use log/slog instead of printing to stdout
+        - pattern: '^log\.'
+          msg: use log/slog instead of the log package
+  exclusions:
+    generated: lax
+    paths:
+      - internal/store/sqlc
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - example.com/app
+  exclusions:
+    generated: lax
+    paths:
+      - internal/store/sqlc
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
