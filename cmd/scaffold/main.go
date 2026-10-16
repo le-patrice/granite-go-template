@@ -120,32 +120,47 @@ func runInit(args []string) error {
 	module := *moduleFlag
 	examples := *examplesFlag
 
-	if module == "" {
-		if isPostGonew {
-			module = currentMod
-		} else if isTerminal(os.Stdin) {
-			module = promptUser("Go module path (e.g. github.com/org/repo): ")
-		}
-	}
-	if module == "" {
-		return errors.New("module path is required (pass --module or set MODULE)")
+	if isPostGonew && module == "" {
+		module = currentMod
 	}
 
-	if name == "" {
-		if isTerminal(os.Stdin) {
-			name = promptUser("Application name: ")
-		} else {
-			// Infer from last element of module path.
+	if isTerminal(os.Stdin) {
+		if module == "" {
+			module = promptUserWithDefault("Go module path (e.g. github.com/org/repo)", "")
+		}
+		if name == "" {
+			defaultName := ""
+			if module != "" {
+				parts := strings.Split(module, "/")
+				defaultName = parts[len(parts)-1]
+			}
+			name = promptUserWithDefault("Application name", defaultName)
+		}
+		if examples == "" {
+			examples = promptUserWithDefault("Include example code (orders, acme webhook)? [keep/strip]", "keep")
+		}
+	} else {
+		if name == "" && module != "" {
 			parts := strings.Split(module, "/")
 			name = parts[len(parts)-1]
 		}
+		if examples == "" {
+			examples = "keep"
+		}
+	}
+
+	switch strings.ToLower(examples) {
+	case "keep", "k", "yes", "y":
+		examples = "keep"
+	case "strip", "s", "no", "n":
+		examples = "strip"
+	}
+
+	if module == "" {
+		return errors.New("module path is required (pass --module or set MODULE)")
 	}
 	if name == "" {
 		return errors.New("application name is required (pass --name or set NAME)")
-	}
-
-	if examples == "" {
-		examples = "keep"
 	}
 	if examples != "keep" && examples != "strip" {
 		return fmt.Errorf("invalid examples value %q; must be 'keep' or 'strip'", examples)
@@ -783,11 +798,21 @@ func readCurrentModule() (string, error) {
 	return "", errors.New("no module statement found in go.mod")
 }
 
-func promptUser(msg string) string {
-	printOut("%s", msg)
-	reader := bufio.NewReader(os.Stdin)
+var stdinReader io.Reader = os.Stdin
+
+func promptUserWithDefault(msg, defaultVal string) string {
+	if defaultVal != "" {
+		printOut("%s [%s]: ", msg, defaultVal)
+	} else {
+		printOut("%s: ", msg)
+	}
+	reader := bufio.NewReader(stdinReader)
 	text, _ := reader.ReadString('\n')
-	return strings.TrimSpace(text)
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return defaultVal
+	}
+	return text
 }
 
 func isTerminal(f *os.File) bool {

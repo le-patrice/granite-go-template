@@ -22,8 +22,19 @@ The scaffolding CLI detects the post-`gonew` environment automatically, infers t
 ```bash
 git clone https://github.com/owner/granite-go my-service
 cd my-service
-make init NAME=my-service MODULE=github.com/myorg/my-service EXAMPLES=keep
+make init
 ```
+
+### Interactive Questionnaire (Copier-style)
+
+When running `make init` in an interactive terminal, the scaffolding engine prompts with sensible defaults:
+
+```text
+? Go module path (e.g. github.com/org/repo) [github.com/myorg/my-service]:
+? Application name [my-service]:
+? Include example code (orders, acme webhook)? [keep/strip] [keep]:
+```
+Pressing Enter accepts the bracketed default value. In automated environments (CI or non-interactive scripts), you can supply arguments (`make init NAME=my-service MODULE=github.com/myorg/my-service EXAMPLES=keep`) to bypass the questionnaire.
 
 `make init` creates `.template/answers.json` to record your choices and refuses to re-run unless `--force` is supplied.
 

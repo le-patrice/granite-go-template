@@ -14,12 +14,15 @@ Use `EXAMPLES=strip` to remove the `orders` and `integrations/acme` reference ex
 
 ## Local Development
 
+Works seamlessly with **Docker** and **Podman** (auto-detected by Makefile):
+
 ```bash
 cp .env.example .env
-make up
-make migrate
-make run-api      # terminal 1
-make run-worker   # terminal 2
+make up           # starts local Postgres
+make logs         # tail Postgres container logs
+make migrate      # runs app + River migrations
+make run-api      # terminal 1: HTTP API server
+make run-worker   # terminal 2: River async background worker
 ```
 
 ## Verification

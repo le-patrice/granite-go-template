@@ -1,6 +1,20 @@
 APP_NAME       ?= {{APP_NAME}}
 MIGRATIONS_DIR ?= db/migrations
-COMPOSE        ?= docker compose -f deployments/compose.yaml
+
+# Auto-detect container engine: docker compose -> podman compose -> podman-compose
+DOCKER_BIN := $(shell command -v docker 2>/dev/null)
+PODMAN_BIN := $(shell command -v podman 2>/dev/null)
+
+ifeq ($(DOCKER_BIN),)
+  ifneq ($(PODMAN_BIN),)
+    COMPOSE ?= podman compose -f deployments/compose.yaml
+  else
+    COMPOSE ?= docker compose -f deployments/compose.yaml
+  endif
+else
+  COMPOSE ?= docker compose -f deployments/compose.yaml
+endif
+
 EXAMPLES       ?= keep
 
 # Local database defaults, matching deployments/compose.yaml (added in Phase 8.a).
@@ -17,7 +31,7 @@ LOADENV = set -a; if [ -f .env ]; then . ./.env; fi; set +a;
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down migrate migrate-verify sqlc run-api run-worker seed-admin \
+.PHONY: help up down logs migrate migrate-verify sqlc run-api run-worker seed-admin \
 	test test-integration lint arch-check vuln new-feature init strip-examples \
 	template-diff add-module perf scaffold-smoke openapi openapi-check
 
@@ -29,6 +43,9 @@ up: ## Start local Postgres
 
 down: ## Stop local Postgres
 	$(COMPOSE) down
+
+logs: ## Tail local Postgres container logs
+	$(COMPOSE) logs -f postgres
 
 migrate: ## Apply app and River migrations using the direct database URL
 	@$(LOADENV) : "$${DATABASE_URL:?DATABASE_URL is required}"; \

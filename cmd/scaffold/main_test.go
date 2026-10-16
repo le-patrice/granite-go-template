@@ -208,3 +208,32 @@ func TestValidFeatureName(t *testing.T) {
 		}
 	}
 }
+
+func TestPromptUserWithDefault(t *testing.T) {
+	oldStdin := stdinReader
+	defer func() { stdinReader = oldStdin }()
+
+	t.Run("uses custom input when provided", func(t *testing.T) {
+		stdinReader = strings.NewReader("custom-value\n")
+		got := promptUserWithDefault("Test prompt", "default-value")
+		if got != "custom-value" {
+			t.Errorf("got %q, want %q", got, "custom-value")
+		}
+	})
+
+	t.Run("uses default on empty input", func(t *testing.T) {
+		stdinReader = strings.NewReader("\n")
+		got := promptUserWithDefault("Test prompt", "default-value")
+		if got != "default-value" {
+			t.Errorf("got %q, want %q", got, "default-value")
+		}
+	})
+
+	t.Run("uses default on whitespace input", func(t *testing.T) {
+		stdinReader = strings.NewReader("   \r\n")
+		got := promptUserWithDefault("Test prompt", "default-value")
+		if got != "default-value" {
+			t.Errorf("got %q, want %q", got, "default-value")
+		}
+	})
+}
