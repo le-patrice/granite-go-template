@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"reflect"
 	"sync"
 	"time"
 
@@ -33,6 +34,18 @@ type (
 
 	// Context is the Huma request context.
 	Context = huma.Context
+
+	// Param is an operation parameter.
+	Param = huma.Param
+
+	// MediaType is an OpenAPI media type object.
+	MediaType = huma.MediaType
+
+	// Tag is an OpenAPI tag object.
+	Tag = huma.Tag
+
+	// Header is an OpenAPI header object.
+	Header = huma.Header
 )
 
 // APIConfig configures Huma v2 OpenAPI and documentation endpoints.
@@ -115,6 +128,47 @@ func NewAPI(r *Router, cfg APIConfig) huma.API {
 		Scheme:       "bearer",
 		BearerFormat: "PASETO",
 		Description:  "PASETO v4.local bearer access token",
+	}
+
+	config.Tags = []*huma.Tag{
+		{Name: "Auth", Description: "User registration, authentication sessions, and token management."},
+		{Name: "Users", Description: "User profile and account operations."},
+		{Name: "Orders", Description: "Order creation, retrieval, and keyset-paginated listing."},
+		{Name: "Operations", Description: "Health checks, readiness probes, and telemetry metrics."},
+		{Name: "Webhooks", Description: "Inbound webhook ingestion and processing."},
+	}
+
+	if config.Components.Responses == nil {
+		config.Components.Responses = map[string]*huma.Response{}
+	}
+	probSchema := huma.SchemaFromType(config.Components.Schemas, reflect.TypeOf(&Problem{}))
+	config.Components.Responses["401Unauthorized"] = &huma.Response{
+		Description: "Authentication required or access token invalid",
+		Headers: map[string]*huma.Header{
+			"WWW-Authenticate": {
+				Description: "Bearer scheme authentication challenge",
+				Schema:      &huma.Schema{Type: "string"},
+			},
+		},
+		Content: map[string]*huma.MediaType{
+			"application/problem+json": {
+				Schema: probSchema,
+			},
+		},
+	}
+	config.Components.Responses["429TooManyRequests"] = &huma.Response{
+		Description: "Too many requests; rate limit exceeded",
+		Headers: map[string]*huma.Header{
+			"Retry-After": {
+				Description: "Number of seconds to wait before retrying",
+				Schema:      &huma.Schema{Type: "integer"},
+			},
+		},
+		Content: map[string]*huma.MediaType{
+			"application/problem+json": {
+				Schema: probSchema,
+			},
+		},
 	}
 
 	return humago.New(r, config)
