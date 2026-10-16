@@ -31,6 +31,10 @@ type Config struct {
 	Addr        string `env:"ADDR" envDefault:":8080"`
 	LogLevel    string `env:"LOG_LEVEL" envDefault:"info"`
 
+	AppVersion    string `env:"APP_VERSION" envDefault:"0.1.0"`
+	DocsEnabled   bool   `env:"DOCS_ENABLED" envDefault:"true"`
+	PublicBaseURL string `env:"PUBLIC_BASE_URL"`
+
 	DatabaseURL       string `env:"DATABASE_URL,required,notEmpty"`
 	DirectDatabaseURL string `env:"DIRECT_DATABASE_URL"`
 

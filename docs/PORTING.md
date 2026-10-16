@@ -28,11 +28,11 @@ Use this guide when migrating an existing Go-Kit or Python (Litestar/FastAPI) se
 
 | Legacy concept | Go-Kit | Python (Litestar/FastAPI) | granite-go home |
 |---|---|---|---|
-| Request/response types | `requests.go`, `responses.go` | `msgspec`/Pydantic models | Structs in `handler.go` |
-| Routing and decoding | Transport + decoders | Controller decorators | `handler.go` (`ServeMux` patterns, `httpx.Decode`) |
-| Endpoint layer | `Endpoint func(ctx, any) (any, error)` | Controller method | Removed; handler calls a typed service method |
+| Request/response types | `requests.go`, `responses.go` | `msgspec`/Pydantic models | Typed input/output structs in `handler.go` |
+| Routing and decoding | Transport + decoders | Controller decorators | `handler.go` (`httpx.Register` with typed struct tags) |
+| Endpoint layer | `Endpoint func(ctx, any) (any, error)` + transport pair | Controller method | Replaced by typed Huma operations calling service use-cases |
 | Business logic | Service interface | `services.py` | `service.go` and `<feature>.go` |
 | Persistence | sqlc or custom | SQLAlchemy | `repo.go` + sqlc |
-| Cross-cutting | Endpoint middleware | Litestar middleware and guards | `func(http.Handler) http.Handler` in `platform/httpx` and `platform/auth` |
+| Cross-cutting | Endpoint middleware | Litestar middleware and guards | `httpx.AdaptMiddleware` wrapping standard `http.Handler` middlewares |
 | Background work | Often none | SAQ, BackgroundTask | River jobs |
 | Outbox | Custom or none | Outbox table + relay | River `InsertTx` in the same transaction |

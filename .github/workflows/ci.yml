@@ -40,6 +40,8 @@ jobs:
         run: make vuln
       - name: sqlc diff is clean
         run: sqlc diff
+      - name: OpenAPI drift check
+        run: make openapi-check
       - name: go mod tidy produces no diff
         run: |
           go mod tidy

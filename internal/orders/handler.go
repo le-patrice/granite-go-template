@@ -1,7 +1,7 @@
 package orders
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -26,23 +26,68 @@ func NewHandler(svc *Service, logger *slog.Logger) *Handler {
 	return &Handler{svc: svc, logger: logger}
 }
 
-// Routes registers the order endpoints. requireAuth guards all of them.
+// Routes registers the order endpoints on api. requireAuth guards all of them.
 // idempotent wraps POST /v1/orders and may be nil, in which case creates are
 // not idempotent.
-func (h *Handler) Routes(router *httpx.Router, requireAuth, idempotent Middleware) {
-	create := http.Handler(http.HandlerFunc(h.create))
-	if idempotent != nil {
-		create = idempotent(create)
+func (h *Handler) Routes(api httpx.API, requireAuth, idempotent Middleware) {
+	createOp := httpx.Operation{
+		OperationID:   "createOrder",
+		Method:        http.MethodPost,
+		Path:          "/v1/orders",
+		Summary:       "Create a new order",
+		Tags:          []string{"Orders"},
+		DefaultStatus: http.StatusCreated,
+		Security:      []map[string][]string{{"bearerAuth": {}}},
 	}
-	router.Handle("POST /v1/orders", requireAuth(create))
-	router.Handle("GET /v1/orders/{id}", requireAuth(http.HandlerFunc(h.get)))
-	router.Handle("GET /v1/orders", requireAuth(http.HandlerFunc(h.list)))
+	if idempotent != nil {
+		createOp.Middlewares = httpx.Middlewares{
+			httpx.AdaptMiddleware(requireAuth),
+			httpx.AdaptMiddleware(idempotent),
+		}
+	} else {
+		createOp.Middlewares = httpx.Middlewares{
+			httpx.AdaptMiddleware(requireAuth),
+		}
+	}
+	httpx.Register(api, createOp, h.create)
+
+	httpx.Register(api, httpx.Operation{
+		OperationID: "getOrder",
+		Method:      http.MethodGet,
+		Path:        "/v1/orders/{id}",
+		Summary:     "Get order by ID",
+		Tags:        []string{"Orders"},
+		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Middlewares: httpx.Middlewares{httpx.AdaptMiddleware(requireAuth)},
+	}, h.get)
+
+	httpx.Register(api, httpx.Operation{
+		OperationID: "listOrders",
+		Method:      http.MethodGet,
+		Path:        "/v1/orders",
+		Summary:     "List orders with keyset pagination",
+		Tags:        []string{"Orders"},
+		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Middlewares: httpx.Middlewares{httpx.AdaptMiddleware(requireAuth)},
+	}, h.list)
 }
 
-type createRequest struct {
-	Reference   string `json:"reference"`
-	AmountMinor int64  `json:"amount_minor"`
-	Currency    string `json:"currency"`
+type createOrderInput struct {
+	IdempotencyKey string `header:"Idempotency-Key" doc:"Optional idempotency key" maxLength:"255"`
+	Body           struct {
+		Reference   string `json:"reference" doc:"Client reference" maxLength:"64"`
+		AmountMinor int64  `json:"amount_minor" doc:"Amount in minor currency units" minimum:"1"`
+		Currency    string `json:"currency" doc:"3-letter ISO currency code" minLength:"3" maxLength:"3"`
+	}
+}
+
+type getOrderInput struct {
+	ID int64 `path:"id" doc:"Order ID" minimum:"1"`
+}
+
+type listOrdersInput struct {
+	Cursor string `query:"cursor" doc:"Opaque pagination cursor"`
+	Limit  int    `query:"limit" doc:"Maximum items to return" minimum:"1" maximum:"100"`
 }
 
 type orderResponse struct {
@@ -59,107 +104,102 @@ type listResponse struct {
 	NextCursor string          `json:"next_cursor,omitempty"`
 }
 
-func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
-	actor, ok := actorFrom(w, r)
+type createOrderOutput struct {
+	Location string `header:"Location"`
+	Body     orderResponse
+}
+
+type getOrderOutput struct {
+	Body orderResponse
+}
+
+type listOrdersOutput struct {
+	Body listResponse
+}
+
+func (h *Handler) create(ctx context.Context, input *createOrderInput) (*createOrderOutput, error) {
+	actor, ok := actorFrom(ctx)
 	if !ok {
-		return
+		return nil, httpx.NewProblem(http.StatusUnauthorized, "authentication required")
 	}
-	var req createRequest
-	if err := httpx.Decode(w, r, &req); err != nil {
-		httpx.WriteError(w, r, err)
-		return
-	}
-	order, err := h.svc.Create(r.Context(), actor, NewOrder{
-		Reference:   req.Reference,
-		AmountMinor: req.AmountMinor,
-		Currency:    req.Currency,
+	order, err := h.svc.Create(ctx, actor, NewOrder{
+		Reference:   input.Body.Reference,
+		AmountMinor: input.Body.AmountMinor,
+		Currency:    input.Body.Currency,
 	})
 	if err != nil {
-		h.writeError(w, r, err)
-		return
+		return nil, h.toProblem(ctx, err)
 	}
-	w.Header().Set("Location", "/v1/orders/"+strconv.FormatInt(order.ID, 10))
-	writeJSON(w, http.StatusCreated, toResponse(order))
+	return &createOrderOutput{
+		Location: "/v1/orders/" + strconv.FormatInt(order.ID, 10),
+		Body:     toResponse(order),
+	}, nil
 }
 
-func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
-	actor, ok := actorFrom(w, r)
+func (h *Handler) get(ctx context.Context, input *getOrderInput) (*getOrderOutput, error) {
+	actor, ok := actorFrom(ctx)
 	if !ok {
-		return
+		return nil, httpx.NewProblem(http.StatusUnauthorized, "authentication required")
 	}
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil || id < 1 {
-		httpx.WriteProblem(w, r, http.StatusBadRequest, "order id must be a positive integer")
-		return
-	}
-	order, err := h.svc.Get(r.Context(), actor, id)
+	order, err := h.svc.Get(ctx, actor, input.ID)
 	if err != nil {
-		h.writeError(w, r, err)
-		return
+		return nil, h.toProblem(ctx, err)
 	}
-	writeJSON(w, http.StatusOK, toResponse(order))
+	return &getOrderOutput{Body: toResponse(order)}, nil
 }
 
-func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
-	actor, ok := actorFrom(w, r)
+func (h *Handler) list(ctx context.Context, input *listOrdersInput) (*listOrdersOutput, error) {
+	actor, ok := actorFrom(ctx)
 	if !ok {
-		return
+		return nil, httpx.NewProblem(http.StatusUnauthorized, "authentication required")
 	}
-	query := r.URL.Query()
-	limit := 0
-	if raw := query.Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil {
-			httpx.WriteProblem(w, r, http.StatusBadRequest, "limit must be an integer")
-			return
-		}
-		limit = n
-	}
-	page, err := h.svc.List(r.Context(), actor, query.Get("cursor"), limit)
+	page, err := h.svc.List(ctx, actor, input.Cursor, input.Limit)
 	if err != nil {
-		h.writeError(w, r, err)
-		return
+		return nil, h.toProblem(ctx, err)
 	}
 	items := make([]orderResponse, 0, len(page.Items))
 	for _, order := range page.Items {
 		items = append(items, toResponse(order))
 	}
-	writeJSON(w, http.StatusOK, listResponse{Items: items, NextCursor: page.NextCursor})
+	return &listOrdersOutput{
+		Body: listResponse{Items: items, NextCursor: page.NextCursor},
+	}, nil
 }
 
-func actorFrom(w http.ResponseWriter, r *http.Request) (Actor, bool) {
-	principal, ok := auth.PrincipalFrom(r.Context())
+func actorFrom(ctx context.Context) (Actor, bool) {
+	principal, ok := auth.PrincipalFrom(ctx)
 	if !ok {
-		httpx.WriteProblem(w, r, http.StatusUnauthorized, "authentication required")
 		return Actor{}, false
 	}
 	return Actor{UserID: principal.UserID, Admin: principal.Role == auth.RoleAdmin}, true
 }
 
-func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) {
+func (h *Handler) toProblem(ctx context.Context, err error) error {
+	p := h.mapError(err)
+	if p.Status >= http.StatusInternalServerError {
+		h.logger.ErrorContext(ctx, "orders request failed",
+			"error", err,
+			"request_id", httpx.RequestIDFrom(ctx),
+		)
+	}
+	p.RequestID = httpx.RequestIDFrom(ctx)
+	return p
+}
+
+func (h *Handler) mapError(err error) *httpx.Problem {
 	var validation *ValidationError
 	switch {
 	case errors.As(err, &validation):
-		httpx.WriteProblem(w, r, http.StatusUnprocessableEntity, validation.Error())
+		return httpx.NewProblem(http.StatusUnprocessableEntity, validation.Error())
 	case errors.Is(err, ErrReferenceTaken):
-		httpx.WriteProblem(w, r, http.StatusConflict, err.Error())
+		return httpx.NewProblem(http.StatusConflict, err.Error())
 	case errors.Is(err, ErrNotFound):
-		httpx.WriteProblem(w, r, http.StatusNotFound, err.Error())
+		return httpx.NewProblem(http.StatusNotFound, err.Error())
 	case errors.Is(err, ErrInvalidCursor):
-		httpx.WriteProblem(w, r, http.StatusBadRequest, err.Error())
+		return httpx.NewProblem(http.StatusBadRequest, err.Error())
 	default:
-		h.logger.ErrorContext(r.Context(), "orders request failed",
-			"error", err,
-			"request_id", httpx.RequestIDFrom(r.Context()),
-		)
-		httpx.WriteInternal(w, r)
+		return httpx.NewProblem(http.StatusInternalServerError, "")
 	}
-}
-
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
 }
 
 func toResponse(order Order) orderResponse {

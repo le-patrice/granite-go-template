@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 
 	"example.com/app/internal/platform/httpx"
@@ -68,4 +69,25 @@ func bearerToken(r *http.Request) (string, bool) {
 func unauthorized(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("WWW-Authenticate", "Bearer")
 	httpx.WriteProblem(w, r, http.StatusUnauthorized, "authentication required")
+}
+
+// HumaRequireAuth returns a Huma operation middleware that validates the bearer token
+// and stores the Principal in the request context.
+func HumaRequireAuth(api huma.API, parser AccessTokenParser) func(ctx huma.Context, next func(huma.Context)) {
+	return func(ctx huma.Context, next func(huma.Context)) {
+		scheme, token, found := strings.Cut(ctx.Header("Authorization"), " ")
+		token = strings.TrimSpace(token)
+		if !found || !strings.EqualFold(scheme, "Bearer") || token == "" {
+			ctx.SetHeader("WWW-Authenticate", "Bearer")
+			_ = huma.WriteErr(api, ctx, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		principal, err := parser.ParseAccess(token)
+		if err != nil {
+			ctx.SetHeader("WWW-Authenticate", "Bearer")
+			_ = huma.WriteErr(api, ctx, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		next(huma.WithContext(ctx, WithPrincipal(ctx.Context(), principal)))
+	}
 }

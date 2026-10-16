@@ -174,8 +174,16 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	router.Handle("GET /metrics", metrics.Handler())
 	router.Handle("POST /v1/webhooks/{source}", ingest)
 
+	api := httpx.NewAPI(router, httpx.APIConfig{
+		Title:         cfg.ServiceName,
+		Version:       cfg.AppVersion,
+		DocsEnabled:   cfg.DocsEnabled,
+		PublicBaseURL: cfg.PublicBaseURL,
+	})
+	RegisterDocumentedRoutes(api)
+
 	users.NewHandler(ids.users, logger).Routes(
-		router,
+		api,
 		ratelimit.Middleware(authLimiter, ratelimit.ByClientIP),
 		auth.RequireAuth(ids.tokens),
 	)
@@ -190,7 +198,7 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return fmt.Errorf("app: %w", err)
 	}
 	orders.NewHandler(orders.NewService(orders.NewRepo(pool, jobs)), logger).Routes(
-		router,
+		api,
 		auth.RequireAuth(ids.tokens),
 		idempotent,
 	)
@@ -216,6 +224,83 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 	logger.InfoContext(ctx, "api stopped")
 	return nil
+}
+
+// RegisterDocumentedRoutes registers non-Huma operational endpoints directly in the OpenAPI spec.
+func RegisterDocumentedRoutes(api httpx.API) {
+	httpx.AddDocumentedRoute(api, &httpx.Operation{
+		OperationID: "healthCheck",
+		Method:      http.MethodGet,
+		Path:        "/healthz",
+		Summary:     "Liveness probe",
+		Description: "Returns 200 OK when the process is alive.",
+		Tags:        []string{"Operations"},
+		Responses: map[string]*httpx.Response{
+			"200": {
+				Description: "Service is alive",
+			},
+		},
+	})
+	httpx.AddDocumentedRoute(api, &httpx.Operation{
+		OperationID: "readinessCheck",
+		Method:      http.MethodGet,
+		Path:        "/readyz",
+		Summary:     "Readiness probe",
+		Description: "Checks database connectivity and readiness to serve traffic.",
+		Tags:        []string{"Operations"},
+		Responses: map[string]*httpx.Response{
+			"200": {
+				Description: "Service is ready to accept traffic",
+			},
+			"503": {
+				Description: "Service is not ready",
+			},
+		},
+	})
+	httpx.AddDocumentedRoute(api, &httpx.Operation{
+		OperationID: "prometheusMetrics",
+		Method:      http.MethodGet,
+		Path:        "/metrics",
+		Summary:     "Prometheus metrics",
+		Description: "Scrape endpoint for Prometheus format metrics.",
+		Tags:        []string{"Operations"},
+		Responses: map[string]*httpx.Response{
+			"200": {
+				Description: "Prometheus metrics scrape response",
+				Content: map[string]*httpx.MediaType{
+					"text/plain": {},
+				},
+			},
+		},
+	})
+	httpx.AddDocumentedRoute(api, &httpx.Operation{
+		OperationID: "ingestWebhook",
+		Method:      http.MethodPost,
+		Path:        "/v1/webhooks/{source}",
+		Summary:     "Inbound webhook ingest",
+		Description: "Accepts signed inbound webhooks from external providers (e.g. Acme) and schedules background processing.",
+		Tags:        []string{"Webhooks"},
+		Parameters: []*httpx.Param{
+			{
+				Name:        "source",
+				In:          "path",
+				Required:    true,
+				Description: "Webhook provider source name (e.g. acme)",
+				Schema:      &httpx.Schema{Type: "string"},
+			},
+		},
+		Responses: map[string]*httpx.Response{
+			"200": {
+				Description: "Webhook received and scheduled",
+			},
+			"400": {
+				Description: "Invalid payload or signature header missing",
+			},
+			"401": {
+				Description: "Invalid webhook signature",
+			},
+		},
+	})
 }
 
 // template:example:begin orders

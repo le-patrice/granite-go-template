@@ -1,7 +1,7 @@
 package users
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -25,23 +25,69 @@ func NewHandler(svc *Service, logger *slog.Logger) *Handler {
 	return &Handler{svc: svc, logger: logger}
 }
 
-// Routes registers the identity endpoints. authLimit is the stricter rate
+// Routes registers the identity endpoints on api. authLimit is the stricter rate
 // limit for /v1/auth/*; requireAuth guards /v1/me.
-func (h *Handler) Routes(router *httpx.Router, authLimit, requireAuth Middleware) {
-	router.Handle("POST /v1/auth/register", authLimit(http.HandlerFunc(h.register)))
-	router.Handle("POST /v1/auth/login", authLimit(http.HandlerFunc(h.login)))
-	router.Handle("POST /v1/auth/refresh", authLimit(http.HandlerFunc(h.refresh)))
-	router.Handle("POST /v1/auth/logout", authLimit(http.HandlerFunc(h.logout)))
-	router.Handle("GET /v1/me", requireAuth(http.HandlerFunc(h.me)))
+func (h *Handler) Routes(api httpx.API, authLimit, requireAuth Middleware) {
+	httpx.Register(api, httpx.Operation{
+		OperationID:   "authRegister",
+		Method:        http.MethodPost,
+		Path:          "/v1/auth/register",
+		Summary:       "Register a new user account",
+		Tags:          []string{"Auth"},
+		DefaultStatus: http.StatusCreated,
+		Middlewares:   httpx.Middlewares{httpx.AdaptMiddleware(authLimit)},
+	}, h.register)
+
+	httpx.Register(api, httpx.Operation{
+		OperationID: "authLogin",
+		Method:      http.MethodPost,
+		Path:        "/v1/auth/login",
+		Summary:     "Authenticate with email and password",
+		Tags:        []string{"Auth"},
+		Middlewares: httpx.Middlewares{httpx.AdaptMiddleware(authLimit)},
+	}, h.login)
+
+	httpx.Register(api, httpx.Operation{
+		OperationID: "authRefresh",
+		Method:      http.MethodPost,
+		Path:        "/v1/auth/refresh",
+		Summary:     "Rotate a refresh token for a new session",
+		Tags:        []string{"Auth"},
+		Middlewares: httpx.Middlewares{httpx.AdaptMiddleware(authLimit)},
+	}, h.refresh)
+
+	httpx.Register(api, httpx.Operation{
+		OperationID:   "authLogout",
+		Method:        http.MethodPost,
+		Path:          "/v1/auth/logout",
+		Summary:       "Revoke a refresh token family",
+		Tags:          []string{"Auth"},
+		DefaultStatus: http.StatusNoContent,
+		Middlewares:   httpx.Middlewares{httpx.AdaptMiddleware(authLimit)},
+	}, h.logout)
+
+	httpx.Register(api, httpx.Operation{
+		OperationID: "usersMe",
+		Method:      http.MethodGet,
+		Path:        "/v1/me",
+		Summary:     "Get current user profile",
+		Tags:        []string{"Users"},
+		Security:    []map[string][]string{{"bearerAuth": {}}},
+		Middlewares: httpx.Middlewares{httpx.AdaptMiddleware(requireAuth)},
+	}, h.me)
 }
 
-type credentialsRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+type credentialsInput struct {
+	Body struct {
+		Email    string `json:"email" doc:"User email address" maxLength:"254"`
+		Password string `json:"password" doc:"User password" maxLength:"1024"`
+	}
 }
 
-type refreshRequest struct {
-	RefreshToken string `json:"refresh_token"`
+type refreshInput struct {
+	Body struct {
+		RefreshToken string `json:"refresh_token" doc:"Opaque refresh token"`
+	}
 }
 
 type userResponse struct {
@@ -59,103 +105,84 @@ type sessionResponse struct {
 	RefreshExpiresAt time.Time `json:"refresh_expires_at"`
 }
 
-func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
-	var req credentialsRequest
-	if err := httpx.Decode(w, r, &req); err != nil {
-		httpx.WriteError(w, r, err)
-		return
-	}
-	user, err := h.svc.Register(r.Context(), req.Email, req.Password)
+type userOutput struct {
+	Body userResponse
+}
+
+type sessionOutput struct {
+	Body sessionResponse
+}
+
+func (h *Handler) register(ctx context.Context, req *credentialsInput) (*userOutput, error) {
+	user, err := h.svc.Register(ctx, req.Body.Email, req.Body.Password)
 	if err != nil {
-		h.writeError(w, r, err)
-		return
+		return nil, h.toProblem(ctx, err)
 	}
-	writeJSON(w, http.StatusCreated, toUserResponse(user))
+	return &userOutput{Body: toUserResponse(user)}, nil
 }
 
-func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
-	var req credentialsRequest
-	if err := httpx.Decode(w, r, &req); err != nil {
-		httpx.WriteError(w, r, err)
-		return
-	}
-	session, err := h.svc.Login(r.Context(), req.Email, req.Password)
+func (h *Handler) login(ctx context.Context, req *credentialsInput) (*sessionOutput, error) {
+	session, err := h.svc.Login(ctx, req.Body.Email, req.Body.Password)
 	if err != nil {
-		h.writeError(w, r, err)
-		return
+		return nil, h.toProblem(ctx, err)
 	}
-	writeJSON(w, http.StatusOK, toSessionResponse(session))
+	return &sessionOutput{Body: toSessionResponse(session)}, nil
 }
 
-func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
-	var req refreshRequest
-	if err := httpx.Decode(w, r, &req); err != nil {
-		httpx.WriteError(w, r, err)
-		return
-	}
-	session, err := h.svc.Refresh(r.Context(), req.RefreshToken)
+func (h *Handler) refresh(ctx context.Context, req *refreshInput) (*sessionOutput, error) {
+	session, err := h.svc.Refresh(ctx, req.Body.RefreshToken)
 	if err != nil {
-		h.writeError(w, r, err)
-		return
+		return nil, h.toProblem(ctx, err)
 	}
-	writeJSON(w, http.StatusOK, toSessionResponse(session))
+	return &sessionOutput{Body: toSessionResponse(session)}, nil
 }
 
-func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
-	var req refreshRequest
-	if err := httpx.Decode(w, r, &req); err != nil {
-		httpx.WriteError(w, r, err)
-		return
+func (h *Handler) logout(ctx context.Context, req *refreshInput) (*struct{}, error) {
+	if err := h.svc.Logout(ctx, req.Body.RefreshToken); err != nil {
+		return nil, h.toProblem(ctx, err)
 	}
-	if err := h.svc.Logout(r.Context(), req.RefreshToken); err != nil {
-		h.writeError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return nil, nil
 }
 
-func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
-	principal, ok := auth.PrincipalFrom(r.Context())
+func (h *Handler) me(ctx context.Context, _ *struct{}) (*userOutput, error) {
+	principal, ok := auth.PrincipalFrom(ctx)
 	if !ok {
-		httpx.WriteProblem(w, r, http.StatusUnauthorized, "authentication required")
-		return
+		return nil, httpx.NewProblem(http.StatusUnauthorized, "authentication required")
 	}
-	user, err := h.svc.Me(r.Context(), principal.UserID)
+	user, err := h.svc.Me(ctx, principal.UserID)
 	if err != nil {
-		h.writeError(w, r, err)
-		return
+		return nil, h.toProblem(ctx, err)
 	}
-	writeJSON(w, http.StatusOK, toUserResponse(user))
+	return &userOutput{Body: toUserResponse(user)}, nil
 }
 
-// writeError maps domain errors to problem responses. Credential and token
-// failures share one message each, so responses never reveal account state.
-func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) {
+func (h *Handler) toProblem(ctx context.Context, err error) error {
+	p := h.mapError(err)
+	if p.Status >= http.StatusInternalServerError {
+		h.logger.ErrorContext(ctx, "users request failed",
+			"error", err,
+			"request_id", httpx.RequestIDFrom(ctx),
+		)
+	}
+	p.RequestID = httpx.RequestIDFrom(ctx)
+	return p
+}
+
+func (h *Handler) mapError(err error) *httpx.Problem {
 	switch {
 	case errors.Is(err, ErrInvalidEmail), errors.Is(err, ErrWeakPassword):
-		httpx.WriteProblem(w, r, http.StatusUnprocessableEntity, err.Error())
+		return httpx.NewProblem(http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, ErrEmailTaken):
-		httpx.WriteProblem(w, r, http.StatusConflict, err.Error())
+		return httpx.NewProblem(http.StatusConflict, err.Error())
 	case errors.Is(err, ErrInvalidCredentials):
-		httpx.WriteProblem(w, r, http.StatusUnauthorized, "invalid credentials")
+		return httpx.NewProblem(http.StatusUnauthorized, "invalid credentials")
 	case errors.Is(err, ErrInvalidToken), errors.Is(err, ErrTokenReuse):
-		httpx.WriteProblem(w, r, http.StatusUnauthorized, "invalid refresh token")
+		return httpx.NewProblem(http.StatusUnauthorized, "invalid refresh token")
 	case errors.Is(err, ErrNotFound):
-		httpx.WriteProblem(w, r, http.StatusUnauthorized, "authentication required")
+		return httpx.NewProblem(http.StatusUnauthorized, "authentication required")
 	default:
-		h.logger.ErrorContext(r.Context(), "users request failed",
-			"error", err,
-			"request_id", httpx.RequestIDFrom(r.Context()),
-		)
-		httpx.WriteInternal(w, r)
+		return httpx.NewProblem(http.StatusInternalServerError, "")
 	}
-}
-
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
 }
 
 func toUserResponse(user User) userResponse {

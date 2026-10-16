@@ -12,6 +12,7 @@
 Makefile template
 TEMPLATE_VERSION template
 cmd/scaffold/ template
+cmd/openapi/ template
 deployments/ template
 perf/ template
 scripts/ template

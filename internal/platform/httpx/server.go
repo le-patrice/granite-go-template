@@ -20,7 +20,8 @@ const (
 // Router is a ServeMux that records which pattern matched each request, so
 // logging, tracing, and metrics can label by route instead of raw path.
 type Router struct {
-	mux *http.ServeMux
+	mux      *http.ServeMux
+	patterns []string
 }
 
 // NewRouter returns an empty Router.
@@ -32,6 +33,7 @@ func NewRouter() *Router {
 // Like ServeMux.Handle it panics on an invalid or conflicting pattern, which
 // can only happen while wiring at startup.
 func (rt *Router) Handle(pattern string, h http.Handler) {
+	rt.patterns = append(rt.patterns, pattern)
 	rt.mux.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		recordRoute(r.Context(), pattern)
 		h.ServeHTTP(w, r)
@@ -41,6 +43,13 @@ func (rt *Router) Handle(pattern string, h http.Handler) {
 // HandleFunc is Handle for a handler function.
 func (rt *Router) HandleFunc(pattern string, f func(http.ResponseWriter, *http.Request)) {
 	rt.Handle(pattern, http.HandlerFunc(f))
+}
+
+// Patterns returns a copy of all patterns registered on the router.
+func (rt *Router) Patterns() []string {
+	cp := make([]string, len(rt.patterns))
+	copy(cp, rt.patterns)
+	return cp
 }
 
 // ServeHTTP implements http.Handler.
