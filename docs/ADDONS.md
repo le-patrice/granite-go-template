@@ -4,7 +4,7 @@ This repository supports self-contained, opt-in add-ons that enhance developer e
 
 | Add-on | Status | Version | Installed At | Description |
 |---|---|---|---|---|
-| `scaffold` | uninstalled | - | - | gonew-ready template, Copier-like init, template-diff, new-feature generator |
+| `scaffold` | installed | 0.2.0 | 2026-10-16 | gonew-ready template, Copier-like init, template-diff, new-feature generator |
 | `huma` | uninstalled | - | - | Typed handlers, automatic OpenAPI 3.1, interactive docs UI, unified RFC 9457 errors |
 
 ## Management
