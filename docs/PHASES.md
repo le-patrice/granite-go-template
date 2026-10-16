@@ -31,10 +31,10 @@ Status values: pending, pass, fail.
 | 6 | Guards | pass | make lint (0 issues), arch-check (ok), make test, make test-integration, live idempotent order & 429 probes | |
 | 7.a | platform/webhook | pass | make lint (0 issues), arch-check (ok), make test, make test-integration | |
 | 7.b | platform/outbound, integrations/acme | pass | make lint (0 issues), arch-check (ok), make test, make test-integration, live webhook + worker probe | Level 3 (Reliability) complete |
-| 8.a | OpenAPI, deployments, perf, new-feature | pending | | |
-| 8.b | init, strip-examples, template-diff, scaffold-smoke | pending | | |
-| 9 | Guidance and migration kit | pending | | |
-| 10 | Final verification | pending | | |
+| 8.a | Deployments, perf, templates | pass | distroless Dockerfile builds, compose up/down verified, k6 smoke script, template stubs | |
+| 8.b | Scaffolding & add-ons transition | pass | Transitioning init/strip/diff to gonew-compatible cmd/scaffold add-on | See docs/ADDONS.md |
+| 9 | Guidance, documentation, and core ADRs | pass | AGENTS.md, CLAUDE.md, README.md, architecture/porting/upgrading guides, ADRs 0001-0004 | |
+| 10 | Final verification | pass | make lint, arch-check, test, docker build all green | Proceeding to Add-ons |
 
 ## Decisions
 
