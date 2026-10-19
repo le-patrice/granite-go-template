@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,6 +20,13 @@ type PoolConfig struct {
 	MinConns        int32
 	MaxConnLifetime time.Duration
 	MaxConnIdleTime time.Duration
+
+	// Server-side session guards, sent as startup parameters. Zero leaves the
+	// server default. Behind PgBouncer in transaction mode, leave these zero
+	// and add the parameters to ignore_startup_parameters, or set them per role.
+	StatementTimeout time.Duration
+	LockTimeout      time.Duration
+	IdleInTxTimeout  time.Duration
 }
 
 // NewPool builds a pgx pool. It does not connect eagerly: the process can start
@@ -39,6 +47,16 @@ func NewPool(ctx context.Context, cfg PoolConfig) (*pgxpool.Pool, error) {
 	}
 	if cfg.MaxConnIdleTime > 0 {
 		poolCfg.MaxConnIdleTime = cfg.MaxConnIdleTime
+	}
+
+	for name, d := range map[string]time.Duration{
+		"statement_timeout":                   cfg.StatementTimeout,
+		"lock_timeout":                        cfg.LockTimeout,
+		"idle_in_transaction_session_timeout": cfg.IdleInTxTimeout,
+	} {
+		if d > 0 {
+			poolCfg.ConnConfig.RuntimeParams[name] = strconv.FormatInt(d.Milliseconds(), 10)
+		}
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)

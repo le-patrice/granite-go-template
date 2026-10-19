@@ -7,3 +7,7 @@ RETURNING id;
 -- name: GetInboundEvent :one
 SELECT * FROM inbound_events
 WHERE id = sqlc.arg(id);
+
+-- name: DeleteOldInboundEvents :execrows
+DELETE FROM inbound_events
+WHERE received_at < sqlc.arg(cutoff);

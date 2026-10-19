@@ -23,9 +23,9 @@ jobs:
           check-latest: true
       - name: Install tools
         run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
       - name: Build
         run: go build ./...
       - name: Vet
@@ -55,8 +55,8 @@ jobs:
         with:
           go-version: stable
           check-latest: true
-      - name: Integration tests
-        run: make test-integration
+      - name: Integration tests with coverage floor
+        run: make cover
 
   migrate-verify:
     runs-on: ubuntu-latest
@@ -81,7 +81,7 @@ jobs:
           go-version: stable
           check-latest: true
       - name: Install goose
-        run: go install github.com/pressly/goose/v3/cmd/goose@latest
+        run: go install github.com/pressly/goose/v3/cmd/goose@v3.29.0
       - name: Verify migrations up, down, up
         run: make migrate-verify PSQL='psql "postgres://app:app@localhost:5432/postgres?sslmode=disable"'
 
@@ -95,8 +95,8 @@ jobs:
           check-latest: true
       - name: Install tools
         run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
-          go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
       - name: Run 4-way scaffold matrix
         run: make scaffold-smoke
 

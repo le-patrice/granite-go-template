@@ -3,7 +3,6 @@ package idempotency
 import (
 	"context"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,8 +10,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"go.uber.org/goleak"
 )
 
 type memRow struct {
@@ -312,60 +309,5 @@ func TestOversizedBodyIs413AndDoesNotReserveTheKey(t *testing.T) {
 	}
 	if rr := send(h, "alice", "key-1", "/v1/x", `{}`); rr.Code != http.StatusCreated {
 		t.Errorf("a valid request with the same key = %d, want 201", rr.Code)
-	}
-}
-
-type sweepStore struct {
-	Store
-	cutoffs chan time.Time
-}
-
-func (s *sweepStore) DeleteExpired(_ context.Context, cutoff time.Time) (int64, error) {
-	select {
-	case s.cutoffs <- cutoff:
-	default:
-	}
-	return 1, nil
-}
-
-func TestCleanupSweepsUntilCancelled(t *testing.T) {
-	defer goleak.VerifyNone(t)
-
-	store := &sweepStore{cutoffs: make(chan time.Time, 10)}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		Cleanup(ctx, store, 5*time.Millisecond, time.Hour, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	}()
-
-	select {
-	case cutoff := <-store.cutoffs:
-		want := time.Now().Add(-time.Hour)
-		if cutoff.Before(want.Add(-time.Minute)) || cutoff.After(want.Add(time.Second)) {
-			t.Errorf("cutoff = %v, want about %v", cutoff, want)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Cleanup never swept")
-	}
-
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Cleanup did not stop after cancellation")
-	}
-}
-
-func TestCleanupWithoutAnIntervalReturnsImmediately(t *testing.T) {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		Cleanup(context.Background(), newMemStore(), 0, time.Hour, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	}()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("Cleanup blocked with a zero interval")
 	}
 }

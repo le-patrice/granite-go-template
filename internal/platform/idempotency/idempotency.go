@@ -48,6 +48,7 @@ type Store interface {
 	Get(ctx context.Context, scope, key string) (Record, error)
 	Complete(ctx context.Context, scope, key string, status int, body []byte) error
 	Release(ctx context.Context, scope, key string) error
+	// DeleteExpired removes keys older than cutoff and returns how many rows were deleted.
 	DeleteExpired(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
@@ -287,31 +288,4 @@ func validKey(key string) bool {
 		}
 	}
 	return true
-}
-
-// Cleanup deletes keys older than ttl every interval until ctx is cancelled.
-// Run it in the worker so abandoned in-flight rows do not accumulate.
-func Cleanup(ctx context.Context, store Store, interval, ttl time.Duration, logger *slog.Logger) {
-	if interval <= 0 {
-		return
-	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			sweepCtx, cancel := context.WithTimeout(ctx, storeTimeout)
-			deleted, err := store.DeleteExpired(sweepCtx, time.Now().UTC().Add(-ttl))
-			cancel()
-			if err != nil {
-				logger.ErrorContext(ctx, "idempotency cleanup failed", "error", err)
-				continue
-			}
-			if deleted > 0 {
-				logger.InfoContext(ctx, "idempotency keys expired", "deleted", deleted)
-			}
-		}
-	}
 }

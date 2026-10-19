@@ -50,3 +50,26 @@ func TestPoolIsLazyAndPingReportsOutage(t *testing.T) {
 		t.Fatal("Ping returned nil against a closed port")
 	}
 }
+
+func TestNewPoolSetsSessionGuards(t *testing.T) {
+	pool, err := NewPool(context.Background(), PoolConfig{
+		URL:              "postgres://app:app@127.0.0.1:1/app?sslmode=disable",
+		StatementTimeout: 30 * time.Second,
+		LockTimeout:      5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewPool: %v", err)
+	}
+	defer pool.Close()
+
+	params := pool.Config().ConnConfig.RuntimeParams
+	if got := params["statement_timeout"]; got != "30000" {
+		t.Errorf("statement_timeout = %q, want 30000", got)
+	}
+	if got := params["lock_timeout"]; got != "5000" {
+		t.Errorf("lock_timeout = %q, want 5000", got)
+	}
+	if _, ok := params["idle_in_transaction_session_timeout"]; ok {
+		t.Error("idle_in_transaction_session_timeout set although zero")
+	}
+}

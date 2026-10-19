@@ -232,7 +232,8 @@ func TestRequestBodyRules(t *testing.T) {
 	if got := raw("text/plain", `{"email":"a@b.co","password":"x"}`); got != http.StatusUnsupportedMediaType {
 		t.Errorf("wrong content type status = %d, want 415", got)
 	}
-	if got := raw("application/json", `{"email":"a@b.co","password":"x","admin":true}`); got != http.StatusBadRequest {
-		t.Errorf("unknown field status = %d, want 400", got)
+	if got := raw("application/json", `{"email":"a@b.co","password":"x","admin":true}`); got != http.StatusUnprocessableEntity {
+		// Huma schema validation rejects unknown properties before httpx.Decode runs.
+		t.Errorf("unknown field status = %d, want 422", got)
 	}
 }

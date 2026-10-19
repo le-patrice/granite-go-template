@@ -52,8 +52,8 @@ APP_COMPOSE = $(COMPOSE) --profile app
 
 .PHONY: help up down logs setup dev check build build-images stack stack-down stack-logs ps health metrics \
 	db-shell db-backup down-volumes clean prune stats logs-api logs-worker migrate migrate-verify sqlc run-api run-worker seed-admin \
-	test test-integration lint arch-check vuln new-feature init strip-examples \
-	template-diff add-module perf scaffold-smoke openapi openapi-check
+	test test-integration lint arch-check vuln new-feature new-migration init strip-examples \
+	template-diff add-module perf scaffold-smoke openapi openapi-check cover
 
 help: ## List targets
 	@echo -e ""
@@ -193,6 +193,12 @@ seed-admin: ## Create the first admin from SEED_ADMIN_* env
 test: ## Unit tests with the race detector
 	go test -race -count=1 ./...
 
+COVER_MIN ?= 70
+
+cover: ## Unit + integration coverage across internal/, fails below COVER_MIN percent
+	go test -race -count=1 -tags=integration -coverpkg=./internal/... -coverprofile=coverage.out ./internal/...
+	@go tool cover -func=coverage.out | awk -v min=$(COVER_MIN) '/^total:/ {gsub("%","",$$3); print "coverage: " $$3 "% (min " min "%)"; if ($$3+0 < min) exit 1}'
+
 test-integration: ## Integration tests against real Postgres (testcontainers)
 	go test -race -count=1 -tags=integration ./...
 
@@ -202,12 +208,20 @@ lint: ## Run golangci-lint
 arch-check: ## Verify platform packages import no feature code
 	bash scripts/arch-check.sh
 
+GOVULNCHECK_VERSION ?= v1.9.0
+
 vuln: ## Scan dependencies with govulncheck
-	govulncheck ./...
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 new-feature: ## Scaffold a feature: make new-feature name=billing
 	@test -n "$(name)" || { echo "usage: make new-feature name=<feature>" >&2; exit 1; }
 	go run ./cmd/scaffold new-feature --name="$(name)"
+
+new-migration: ## Create a UTC timestamped SQL migration: make new-migration name=add_index
+	@test -n "$(name)" || { echo "usage: make new-migration name=<migration_name>" >&2; exit 1; }
+	@f="$(MIGRATIONS_DIR)/$$(date -u +%Y%m%d%H%M%S)_$(name).sql"; \
+	printf '%s\n\n%s\n' '-- +goose Up' '-- +goose Down' > "$$f"; \
+	echo "Created: $$f"
 
 init: ## Scaffold a project (once): make init NAME=<app> MODULE=<module> EXAMPLES=keep|strip
 	go run ./cmd/scaffold init --name="$(NAME)" --module="$(MODULE)" --examples="$(EXAMPLES)"

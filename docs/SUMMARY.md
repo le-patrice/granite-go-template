@@ -28,3 +28,4 @@
 * [0005 Scaffold and gonew](adr/0005-scaffold-and-gonew.md)
 * [0006 Huma](adr/0006-huma.md)
 * [0007 Operations and Scaling](adr/0007-operations-and-scaling.md)
+* [0008 Retention, Migrations, and Enterprise Auth](adr/0008-retention-migrations-and-enterprise-auth.md)

@@ -288,6 +288,9 @@ func AdaptMiddleware(mw func(http.Handler) http.Handler) func(Context, func(Cont
 	}
 	return func(ctx Context, next func(Context)) {
 		r, w := humago.Unwrap(ctx)
+		// Unwrap returns the original request, which lacks context values added by
+		// earlier middleware in the chain (for example the authenticated principal).
+		r = withHumaContext(r, ctx)
 		handler := mw(http.HandlerFunc(func(w2 http.ResponseWriter, r2 *http.Request) {
 			wc := &wrappedContext{
 				orig: ctx,
@@ -298,4 +301,10 @@ func AdaptMiddleware(mw func(http.Handler) http.Handler) func(Context, func(Cont
 		}))
 		handler.ServeHTTP(w, r)
 	}
+}
+
+// withHumaContext returns r carrying the context of the (possibly wrapped) Huma
+// context, so values set by earlier middleware are visible to later ones.
+func withHumaContext(r *http.Request, ctx Context) *http.Request {
+	return r.WithContext(ctx.Context())
 }

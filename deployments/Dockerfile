@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
-FROM golang:alpine AS build
-ENV GOTOOLCHAIN=auto
+FROM golang:1.26-alpine AS build
+ENV GOTOOLCHAIN=local
 WORKDIR /src
 
 COPY go.mod go.sum ./
@@ -13,12 +13,12 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/api ./c
  && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/seed ./cmd/seed
 
 # Migration image: `docker build --target migrate`. Runs goose against /migrations.
-FROM golang:alpine AS goose
-ENV GOTOOLCHAIN=auto
+FROM golang:1.26-alpine AS goose
+ENV GOTOOLCHAIN=local
 ARG GOOSE_VERSION=v3.29.0
 RUN CGO_ENABLED=0 go install github.com/pressly/goose/v3/cmd/goose@${GOOSE_VERSION}
 
-FROM alpine:3 AS migrate
+FROM alpine:3.22 AS migrate
 RUN adduser -D -u 65532 nonroot
 COPY --from=goose /go/bin/goose /bin/goose
 COPY db/migrations /migrations

@@ -591,9 +591,11 @@ CREATE TABLE IF NOT EXISTS %s (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS %s_created_at_id_idx ON %s (created_at DESC, id DESC);
+
 -- +goose Down
 DROP TABLE IF EXISTS %s;
-`, name, name)
+`, name, name, name, name)
 
 	if err := os.WriteFile(migPath, []byte(migContent), 0o644); err != nil {
 		return err
@@ -608,7 +610,8 @@ WHERE id = sqlc.arg(id);
 
 -- name: List%s :many
 SELECT * FROM %s
-ORDER BY created_at DESC
+WHERE (created_at, id) < (sqlc.arg(cursor_created_at)::timestamptz, sqlc.arg(cursor_id)::uuid)
+ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(page_size)::bigint;
 `, title, name, toPascalCase(name), name)
 

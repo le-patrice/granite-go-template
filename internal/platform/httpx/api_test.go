@@ -219,3 +219,35 @@ func TestAdaptMiddleware(t *testing.T) {
 		t.Fatalf("body = %q, want test-val", rec2.Body.String())
 	}
 }
+
+type ctxKey struct{}
+
+func TestAdaptMiddlewarePropagatesContextAcrossChain(t *testing.T) {
+	router := NewRouter()
+	api := NewAPI(router, APIConfig{Title: "t", Version: "1"})
+
+	setValue := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, "set")))
+		})
+	}
+	var seen any
+	readValue := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			seen = r.Context().Value(ctxKey{})
+			next.ServeHTTP(w, r)
+		})
+	}
+	Register(api, Operation{
+		OperationID: "chain",
+		Method:      http.MethodGet,
+		Path:        "/test/chain",
+		Middlewares: Middlewares{AdaptMiddleware(setValue), AdaptMiddleware(readValue)},
+	}, func(context.Context, *struct{}) (*struct{}, error) { return &struct{}{}, nil })
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/test/chain", nil)
+	router.ServeHTTP(httptest.NewRecorder(), req)
+	if seen != "set" {
+		t.Errorf("second middleware saw context value %v, want the value set by the first", seen)
+	}
+}

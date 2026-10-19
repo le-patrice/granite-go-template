@@ -88,9 +88,11 @@ redacted in logs. See [`.env.example`](.env.example). Scaling-related knobs:
 | `DIRECT_DATABASE_URL` | `DATABASE_URL` | Migrations, seed, worker (`LISTEN/NOTIFY`) |
 | `DB_MAX_CONNS` / `DB_MIN_CONNS` | pgx default | API pool size per replica |
 | `DB_MAX_CONN_LIFETIME` / `DB_MAX_CONN_IDLE_TIME` | `30m` / `5m` | Connection recycling for failover |
+| `DB_STATEMENT_TIMEOUT` / `DB_LOCK_TIMEOUT` / `DB_IDLE_IN_TX_TIMEOUT` | `30s` / `5s` / `30s` | Postgres session guards; `0` disables (needed behind PgBouncer transaction mode) |
 | `WORKER_CONCURRENCY` | `10` | Jobs per replica on the default queue |
 | `WORKER_QUEUES` | empty | Named queues, e.g. `default:10,webhooks:5` |
 | `WORKER_HEALTH_ADDR` | `:8081` | Worker probes (empty disables) |
+| `RETENTION_IDEMPOTENCY_KEYS` / `RETENTION_INBOUND_EVENTS` / `RETENTION_REFRESH_TOKEN_GRACE` | `24h` / `720h` / `24h` | Leader-elected hourly retention sweep (`maintenance.retention`) |
 | `RATE_LIMIT_RPS` / `RATE_LIMIT_BURST` | `20` / `40` | Per-process limiter |
 
 ## Deploy

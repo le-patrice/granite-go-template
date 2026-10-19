@@ -18,9 +18,11 @@ make run-api / make run-worker
 make seed-admin        # first admin from SEED_ADMIN_* env
 make test              # unit tests, -race
 make test-integration  # real Postgres via testcontainers
+make cover             # unit + integration coverage floor (COVER_MIN=70)
 make lint arch-check vuln
 make openapi / make openapi-check # generate & verify openapi.yaml
 make new-feature name=billing
+make new-migration name=add_index # UTC timestamped goose migration
 make init NAME=<app> MODULE=<module> EXAMPLES=keep|strip   # scaffold a project from the template (once)
 make strip-examples CONFIRM=yes                              # remove example code
 make template-diff TAG=<version>                             # upstream changes to template/shared paths
@@ -85,8 +87,8 @@ A service must be unit-testable with a fake repository, no database, no HTTP.
 
 ## Adding a feature
 
-1. `make new-feature name=<x>` and edit the generated files.
-2. Write the migration (with `Down`) and queries in `db/`; run `make sqlc`.
+1. `make new-feature name=<x>` and edit the generated files (creates a UTC timestamped migration and keyset query stub).
+2. Write the migration (with `Down`) and queries in `db/`; run `make sqlc`. Standalone migrations use `make new-migration name=<y>`.
 3. Put rules in `<x>.go`, use-cases in `service.go`, SQL access in `repo.go`, HTTP in `handler.go`.
 4. Register the feature in `internal/app` (the only wiring point). Run `make openapi` to update `api/openapi.yaml`.
 5. Unit-test the service with a fake repo; integration-test the repo and handler.
@@ -117,7 +119,6 @@ This repo is a **boilerplate** cloned to scaffold many projects. Two audiences, 
 - Progress lives in `docs/PHASES.md`. Work phase by phase; each phase ends with a passing gate, a commit, and a `phase-N` tag. Do not skip past a failing gate.
 - A phase edits only its own files plus the shared extension points (`app/`, `Makefile`, `.env.example`, `api/openapi.yaml`, `.golangci.yml`, `CHANGELOG.md`, `docs/PHASES.md`). Log any other edit to earlier work in the ledger.
 - Porting a service: follow `docs/PORTING.md`. One domain per PR. Port first, improve later; never change behavior and structure in the same commit. Contract tests under `tests/contract/` define "same behavior".
-- The legacy fallback (`internal/app/legacy.go`) is temporary. Ported routes win automatically because `ServeMux` picks the most specific pattern. Roll back with `ENABLED_FEATURES`.
 - Schema changes are expand/contract: additive first, destructive only after cutover is stable.
 
 ## Dependencies

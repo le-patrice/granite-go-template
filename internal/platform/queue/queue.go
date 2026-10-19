@@ -42,7 +42,11 @@ type WorkerConfig struct {
 	// Queues optionally replaces the single default queue with named queues and
 	// their max concurrent jobs. Jobs choose a queue through InsertOpts.
 	Queues map[string]int
-	Logger *slog.Logger
+	// PeriodicJobs are scheduled by River. River elects one leader across all
+	// worker replicas, so a periodic job is enqueued once per tick, not once per
+	// replica. Use river.PeriodicJobOpts{RunOnStart: true} for catch-up work.
+	PeriodicJobs []*river.PeriodicJob
+	Logger       *slog.Logger
 }
 
 // TotalWorkers returns how many jobs may run at once across all queues, which
@@ -78,9 +82,10 @@ func NewWorkerClient(pool *pgxpool.Pool, cfg WorkerConfig) (*river.Client[pgx.Tx
 		}
 	}
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
-		Logger:  cfg.Logger,
-		Queues:  queues,
-		Workers: cfg.Workers,
+		Logger:       cfg.Logger,
+		PeriodicJobs: cfg.PeriodicJobs,
+		Queues:       queues,
+		Workers:      cfg.Workers,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("queue: worker client: %w", err)

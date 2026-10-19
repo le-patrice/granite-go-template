@@ -18,6 +18,7 @@
 
 # Coverage and profiling
 coverage.txt
+coverage.out
 coverage.html
 *.prof
 

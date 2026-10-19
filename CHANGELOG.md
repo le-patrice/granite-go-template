@@ -6,6 +6,35 @@ edits in downstream projects carries an "Upgrade notes" entry.
 
 ## [Unreleased]
 
+## [0.4.1]
+
+### Added
+
+- `DB_STATEMENT_TIMEOUT`, `DB_LOCK_TIMEOUT`, `DB_IDLE_IN_TX_TIMEOUT` session guards (`store.PoolConfig`).
+- `queue.WorkerConfig.PeriodicJobs` passes River periodic jobs to the worker client (leader-elected across replicas).
+- Hourly periodic retention sweep (`maintenance.retention` in `internal/app/retention.go`) pruning `idempotency_keys` (`RETENTION_IDEMPOTENCY_KEYS`), `refresh_tokens` (`RETENTION_REFRESH_TOKEN_GRACE`), and `inbound_events` (`RETENTION_INBOUND_EVENTS`), plus `20261019000000_inbound_events_received_at_idx.sql`.
+- `make new-migration name=<x>` for UTC timestamped goose SQL migrations, and composite keyset index/query generation in `make new-feature`.
+- ADR 0008 covering retention sweeps, UTC timestamp migrations, session guards, and the enterprise OIDC/JWKS authentication path.
+
+### Changed
+
+- `make cover` runs unit and integration tests together and fails below `COVER_MIN` (default 70%); CI integration job uses it.
+- CI tools (`golangci-lint`, `govulncheck`, `sqlc`, `goose`) are pinned instead of `@latest`.
+- Dockerfile pins `golang:1.26-alpine`, `alpine:3.22` and uses `GOTOOLCHAIN=local`.
+- `docs/DOMAIN_BLUEPRINT.md`: section 6 is now a status table (done versus open gaps found in review) and section 10 covers running several projects from the template. Corrected the list cursor (keyset on `created_at, id`) and noted that `platform/webhook` has no GET handshake.
+- Removed unimplemented `ENABLED_FEATURES` and `internal/app/legacy.go` references from `AGENTS.md` and `docs/PORTING.md`.
+
+### Fixed
+
+- `httpx.AdaptMiddleware` now passes the context built by earlier middleware to later ones. Previously the principal set by `RequireAuth` was lost before the idempotency middleware, so `POST /v1/orders` with `Idempotency-Key` returned 401.
+- Integration tests now expect 422 for Huma schema and parameter validation failures (unknown body fields, malformed path and query values), matching the current wire behavior.
+- `make vuln` runs a pinned `govulncheck` through `go run`, so a stale binary on `PATH` cannot break it.
+
+### Upgrade notes
+
+- Behind PgBouncer in transaction mode, set `DB_STATEMENT_TIMEOUT=0`, `DB_LOCK_TIMEOUT=0`, and `DB_IDLE_IN_TX_TIMEOUT=0` (or allow them via `ignore_startup_parameters`), otherwise connections are rejected.
+- Apply the new migration (`20261019000000_inbound_events_received_at_idx.sql`) before running the updated worker retention job.
+
 ## [0.4.0]
 
 ### Added

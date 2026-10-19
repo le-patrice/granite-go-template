@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"sync"
 	"time"
+
+	"github.com/riverqueue/river"
 
 	"example.com/app/internal/config"
 	"example.com/app/internal/platform/httpx"
-	"example.com/app/internal/platform/idempotency"
 	"example.com/app/internal/platform/queue"
 	"example.com/app/internal/platform/store"
 	"example.com/app/internal/platform/webhook"
@@ -25,14 +25,12 @@ const (
 	workerStopTimeout       = 20 * time.Second
 	workerCancelTimeout     = 5 * time.Second
 	workerConnHeadroom      = 4
-	idempotencyCleanupEvery = time.Hour
-	idempotencyKeyTTL       = 24 * time.Hour
 	workerReadyTimeout      = 2 * time.Second
 	workerHealthStopTimeout = 5 * time.Second
 	workerHealthHeaderLimit = 5 * time.Second
 )
 
-// RunWorker runs the River worker and the idempotency-key cleanup loop until
+// RunWorker runs the River worker, including the periodic retention sweep, until
 // ctx is cancelled, then stops fetching, drains running jobs, and only then
 // closes the pool. River's Start context is deliberately not the signal
 // context: cancelling it would hard-stop jobs, so shutdown goes through Stop.
@@ -43,10 +41,13 @@ func RunWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 		Logger:      logger,
 	}
 	pool, err := store.NewPool(ctx, store.PoolConfig{
-		URL:             cfg.DirectDatabaseURL,
-		MaxConns:        int32(workerCfg.TotalWorkers()) + workerConnHeadroom,
-		MaxConnLifetime: cfg.DBMaxConnLifetime,
-		MaxConnIdleTime: cfg.DBMaxConnIdleTime,
+		URL:              cfg.DirectDatabaseURL,
+		MaxConns:         int32(workerCfg.TotalWorkers()) + workerConnHeadroom,
+		MaxConnLifetime:  cfg.DBMaxConnLifetime,
+		MaxConnIdleTime:  cfg.DBMaxConnIdleTime,
+		StatementTimeout: cfg.DBStatementTimeout,
+		LockTimeout:      cfg.DBLockTimeout,
+		IdleInTxTimeout:  cfg.DBIdleInTxTimeout,
 	})
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
@@ -65,23 +66,18 @@ func RunWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) erro
 	orders.RegisterWorkers(workers, orders.NewRepo(pool, nil), orders.NewLogNotifier(logger))
 	// template:example:end orders
 
+	river.AddWorker(workers, newRetentionWorker(pool, retentionPolicy{
+		IdempotencyKeys:   cfg.RetentionIdempotencyKeys,
+		InboundEvents:     cfg.RetentionInboundEvents,
+		RefreshTokenGrace: cfg.RetentionRefreshTokenGrace,
+	}, logger))
+
 	workerCfg.Workers = workers
+	workerCfg.PeriodicJobs = []*river.PeriodicJob{retentionPeriodicJob()}
 	client, err := queue.NewWorkerClient(pool, workerCfg)
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
 	}
-
-	var cleanup sync.WaitGroup
-	cleanupCtx, stopCleanup := context.WithCancel(context.WithoutCancel(ctx))
-	cleanup.Add(1)
-	go func() {
-		defer cleanup.Done()
-		idempotency.Cleanup(cleanupCtx, newIdempotencyStore(pool), idempotencyCleanupEvery, idempotencyKeyTTL, logger)
-	}()
-	defer func() {
-		stopCleanup()
-		cleanup.Wait()
-	}()
 
 	if err := client.Start(context.WithoutCancel(ctx)); err != nil {
 		return fmt.Errorf("app: start worker: %w", err)

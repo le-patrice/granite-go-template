@@ -7,7 +7,21 @@ package sqlc
 
 import (
 	"context"
+	"time"
 )
+
+const deleteOldInboundEvents = `-- name: DeleteOldInboundEvents :execrows
+DELETE FROM inbound_events
+WHERE received_at < $1
+`
+
+func (q *Queries) DeleteOldInboundEvents(ctx context.Context, cutoff time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteOldInboundEvents, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
 
 const getInboundEvent = `-- name: GetInboundEvent :one
 SELECT id, source, external_id, payload, received_at FROM inbound_events

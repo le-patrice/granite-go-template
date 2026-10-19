@@ -110,11 +110,14 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}()
 
 	pool, err := store.NewPool(ctx, store.PoolConfig{
-		URL:             cfg.DatabaseURL,
-		MaxConns:        cfg.DBMaxConns,
-		MinConns:        cfg.DBMinConns,
-		MaxConnLifetime: cfg.DBMaxConnLifetime,
-		MaxConnIdleTime: cfg.DBMaxConnIdleTime,
+		URL:              cfg.DatabaseURL,
+		MaxConns:         cfg.DBMaxConns,
+		MinConns:         cfg.DBMinConns,
+		MaxConnLifetime:  cfg.DBMaxConnLifetime,
+		MaxConnIdleTime:  cfg.DBMaxConnIdleTime,
+		StatementTimeout: cfg.DBStatementTimeout,
+		LockTimeout:      cfg.DBLockTimeout,
+		IdleInTxTimeout:  cfg.DBIdleInTxTimeout,
 	})
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
@@ -188,7 +191,9 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	})
 	RegisterDocumentedRoutes(api)
 
-	users.NewHandler(ids.users, logger).Routes(
+	// Routes only registers operations; the request context is read per request inside
+	// httpx.AdaptMiddleware, so contextcheck's registration-time report is a false positive.
+	users.NewHandler(ids.users, logger).Routes( //nolint:contextcheck
 		api,
 		ratelimit.Middleware(authLimiter, ratelimit.ByClientIP),
 		auth.RequireAuth(ids.tokens),
@@ -203,7 +208,7 @@ func RunAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
 	}
-	orders.NewHandler(orders.NewService(orders.NewRepo(pool, jobs)), logger).Routes(
+	orders.NewHandler(orders.NewService(orders.NewRepo(pool, jobs)), logger).Routes( //nolint:contextcheck // see users Routes above
 		api,
 		auth.RequireAuth(ids.tokens),
 		idempotent,

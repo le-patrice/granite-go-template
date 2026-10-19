@@ -378,10 +378,10 @@ func TestBadInputOverHTTP(t *testing.T) {
 		path   string
 		status int
 	}{
-		{"non-numeric id", http.MethodGet, "/v1/orders/abc", http.StatusBadRequest},
+		{"non-numeric id", http.MethodGet, "/v1/orders/abc", http.StatusUnprocessableEntity},
 		{"unknown id", http.MethodGet, "/v1/orders/999999", http.StatusNotFound},
 		{"bad cursor", http.MethodGet, "/v1/orders?cursor=!!!", http.StatusBadRequest},
-		{"bad limit", http.MethodGet, "/v1/orders?limit=abc", http.StatusBadRequest},
+		{"bad limit", http.MethodGet, "/v1/orders?limit=abc", http.StatusUnprocessableEntity},
 	} {
 		if rr := a.call(t, tt.method, tt.path, alice, "member", nil); rr.Code != tt.status {
 			t.Errorf("%s status = %d, want %d", tt.name, rr.Code, tt.status)

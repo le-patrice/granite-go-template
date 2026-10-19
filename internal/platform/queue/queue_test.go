@@ -3,8 +3,10 @@ package queue
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 
 	"example.com/app/internal/platform/store"
 )
@@ -54,5 +56,34 @@ func TestTotalWorkers(t *testing.T) {
 				t.Errorf("TotalWorkers = %d, want %d", got, tt.want)
 			}
 		})
+	}
+}
+
+type tickArgs struct{}
+
+func (tickArgs) Kind() string { return "queue_test.tick" }
+
+type tickWorker struct {
+	river.WorkerDefaults[tickArgs]
+}
+
+func (tickWorker) Work(context.Context, *river.Job[tickArgs]) error { return nil }
+
+func TestNewWorkerClientAcceptsPeriodicJobs(t *testing.T) {
+	workers := NewWorkers()
+	river.AddWorker(workers, tickWorker{})
+
+	periodic := river.NewPeriodicJob(
+		river.PeriodicInterval(time.Hour),
+		func() (river.JobArgs, *river.InsertOpts) { return tickArgs{}, nil },
+		&river.PeriodicJobOpts{RunOnStart: true},
+	)
+	client, err := NewWorkerClient(newLazyPool(t), WorkerConfig{
+		Workers:      workers,
+		Concurrency:  2,
+		PeriodicJobs: []*river.PeriodicJob{periodic},
+	})
+	if err != nil || client == nil {
+		t.Fatalf("NewWorkerClient with periodic jobs = %v, %v", client, err)
 	}
 }

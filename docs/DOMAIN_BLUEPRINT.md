@@ -18,7 +18,7 @@ Work in this order. Each step has a gate.
 | 1 | **Event-storm** the domain: commands, events, actors, invariants, external systems | A one-page table (section 2) | Every state change has an owner |
 | 2 | **Draw the boundary**: which capabilities are *features* (own data + rules) and which are *integrations* (vendor adapters) | Package list | Features never import each other or vendors |
 | 3 | **Model the state machine** for each aggregate | Allowed transitions in `<feature>.go` | Illegal transitions are unrepresentable or return a domain error |
-| 4 | **Schema** (expand-only): tables, constraints, indexes, `Down` | `db/migrations/NNNN_*.sql` | `make migrate-verify` |
+| 4 | **Schema** (expand-only): tables, constraints, indexes, `Down` | `db/migrations/YYYYMMDDHHMMSS_*.sql` (`make new-feature` / `make new-migration`) | `make migrate-verify` |
 | 5 | **Queries** | `db/queries/*.sql`, `make sqlc` | `sqlc diff` clean |
 | 6 | **Service with a fake repo** | `service.go` + table-driven tests | Tests pass with no DB or HTTP |
 | 7 | **Repo, handler, jobs** | `repo.go`, `handler.go`, `jobs.go` | `make test-integration` |
@@ -202,7 +202,9 @@ type Repository interface {
 	// (when to == paid) enqueues the merchant notification, all in ONE transaction.
 	// Row is locked (SELECT ... FOR UPDATE) so concurrent webhooks serialise.
 	Transition(ctx context.Context, id uuid.UUID, to Status, cause string, inboundID int64) (Request, error)
-	ListByMerchant(ctx context.Context, merchant uuid.UUID, before uuid.UUID, limit int) ([]Request, error)
+	// ListByMerchant is keyset-paginated on (created_at DESC, id). Random UUIDs are not
+	// time-ordered, so the cursor carries both values; never page on id alone.
+	ListByMerchant(ctx context.Context, merchant uuid.UUID, after Cursor, limit int) ([]Request, error)
 }
 
 type Messenger interface { // implemented in app by an adapter over integrations/whatsapp
@@ -241,6 +243,8 @@ POST /v1/payments {reference, amount_minor, currency, phone}
 ```text
 POST /v1/webhooks/whatsapp   Meta: HMAC SHA-256 of raw body, header X-Hub-Signature-256
 GET  /v1/webhooks/whatsapp   Meta verification handshake (hub.mode / hub.verify_token / hub.challenge)
+                             NOT provided by platform/webhook (Ingest is POST-only); add a small
+                             handler in the integration and register it in app
 POST /v1/webhooks/psp        provider-specific signature
 ```
 
@@ -255,7 +259,7 @@ POST /v1/webhooks/psp        provider-specific signature
 - Out-of-order events: the state machine rejects illegal transitions; the processor logs and
   acknowledges (returns nil) rather than retrying forever.
 
-**D. Expiry (periodic River job)** `payments.expire`: selects rows with `expires_at < now()` in
+**D. Expiry (periodic River job)** `payments.expire` (register through `queue.WorkerConfig.PeriodicJobs`; River elects one leader, so replicas do not double-enqueue): selects rows with `expires_at < now()` in
 non-terminal status via the partial index, in batches, transitions to `expired`.
 
 **E. Notify merchant** `payments.notify_merchant`: outbound merchant webhook (signed by you,
@@ -339,29 +343,41 @@ Copy into the PR description.
 
 ---
 
-## 6. Suggested Additions Before Production
+## 6. Production Readiness Status
 
-Gaps identified in the architecture review. Each needs an ADR if adopted.
+Status as of template 0.4.1. Each open item needs an ADR if adopted.
+
+**Done in the template**
+
+| Area | Where |
+|---|---|
+| Kustomize manifests, separate api and worker with independent HPA, PDB, probes, NetworkPolicy | `deployments/k8s` |
+| Worker health listener (`WORKER_HEALTH_ADDR`) | `internal/app/worker.go` |
+| Alert rules | `deployments/observability` |
+| Image scan, SBOM, `govulncheck`, pinned tools | `.github/workflows/ci.yml`, `make vuln` |
+| DB session guards (`DB_STATEMENT_TIMEOUT`, `DB_LOCK_TIMEOUT`, `DB_IDLE_IN_TX_TIMEOUT`) | `store.PoolConfig` |
+| Periodic jobs and leader-elected hourly retention (`idempotency_keys`, `refresh_tokens`, `inbound_events`) | `queue.WorkerConfig.PeriodicJobs`, `internal/app/retention.go` |
+| UTC timestamp migrations (`make new-feature`, `make new-migration`) | `Makefile`, `cmd/scaffold`, `docs/adr/0008-retention-migrations-and-enterprise-auth.md` |
+| Coverage floor | `make cover` |
+
+**Open: platform gaps found in review**
 
 | Priority | Gap | Suggestion |
 |---|---|---|
-| P0 | No secret manager integration | Load secrets from Vault/AWS/GCP Secret Manager via env injection at deploy; rotation runbook |
-| P0 | Deployment manifests are compose only | Add Helm/Kustomize or Terraform module as a `project` path; separate `api` and `worker` deployments with independent HPA |
-| P0 | No backup/PITR/restore drill documented | Managed Postgres with PITR; quarterly restore test |
+| P0 | No secret manager integration | Inject from Vault/AWS/GCP at deploy; write a rotation runbook |
+| P0 | No key rotation for `AUTH_TOKEN_KEY` or webhook secrets (a rotation signs everyone out) | Key ID with two active keys; accept old and new secrets during a window |
+| P0 | No backup, PITR or restore drill documented | Managed Postgres with PITR; quarterly restore test |
 | P0 | Webhook replay protection beyond dedupe | Optional timestamp tolerance where the provider signs a timestamp |
-| P1 | No alerting/SLO definitions | Prometheus rules: API 5xx rate, p95 latency, River queue depth/age, job error rate, outbox lag, breaker open |
-| P1 | Rate limiter is in-process | Fine for one instance; enable `shared-ratelimit` module before running more than one replica |
-| P1 | CI lacks container image scan, SBOM, and signing | Add Trivy/Grype, `syft`, `cosign`; `govulncheck` is already present |
-| P1 | No readiness distinction for worker | Add worker health endpoint and River stuck-job alerting |
-| P1 | No audit log feature | Append-only `audit_events` feature for admin/security actions |
+| P1 | Rate limiter is in-process | Adopt `shared-ratelimit` before running more than one replica |
+| P1 | No audit log feature | Append-only `audit_events` for admin and security actions |
 | P1 | PII/field-level encryption helper | A platform package once two features need it (rule: not before) |
-| P2 | Tenancy | `tenancy` module (RLS or `tenant_id`) before the first multi-tenant customer, since retrofitting is costly |
-| P2 | Cache | None needed yet; add Redis only with measured need (read hotspots, shared limiter) |
-| P2 | Table growth | Partition `inbound_events`, `payment_events`, and `idempotency_keys` by time once row counts are in the tens of millions; retention jobs first |
-| P2 | Read scaling | Add read replica routing for list/reporting endpoints; keep writes and webhooks on primary |
-| P2 | Load-test in CI | Promote `perf/smoke.js` to a nightly threshold check |
-| P2 | Feature flags/config reload | `ENABLED_FEATURES` exists; add kill switches for each outbound integration |
-| P3 | Dead-letter handling | River discarded-job dashboard (River UI) and a replay runbook |
+| P2 | Tenancy | `tenancy` module before the first multi-tenant customer; retrofitting is costly |
+| P2 | Cache | None needed yet; add Redis only with measured need |
+| P2 | Table growth | Partition `inbound_events`, `payment_events` and `idempotency_keys` by time at tens of millions of rows; retention jobs first |
+| P2 | Read scaling | Read replica routing for list and reporting endpoints; keep writes and webhooks on primary |
+| P2 | Load test | Promote `perf/smoke.js` to a nightly threshold check |
+| P2 | Kill switches | Per-integration switches for outbound calls |
+| P3 | Dead-letter handling | River UI for discarded jobs and a replay runbook |
 | P3 | Notifications abstraction | Only when a second channel (SMS/email) appears |
 
 ---
@@ -382,7 +398,7 @@ Gaps identified in the architecture review. Each needs an ADR if adopted.
 3. Build adapters satisfying `payments.Messenger` and `payments.Charger`.
 4. `payments.NewService(repo, ...)`; register handler via `httpx.Register`.
 5. Register webhook sources and processors; register workers (`payments.RegisterWorkers`) in `worker.go`.
-6. Add periodic jobs (expiry, reconciliation, idempotency cleanup).
+6. Add periodic jobs (expiry, reconciliation) via `workerCfg.PeriodicJobs`.
 7. `make openapi`.
 
 ---
@@ -395,3 +411,14 @@ Gaps identified in the architecture review. Each needs an ADR if adopted.
 - **Runbooks**: replay a failed webhook, force-reconcile a payment, rotate WhatsApp token, handle a Meta outage (breaker open, requests expire naturally).
 - **Reconciliation**: daily report job; mismatches raise an alert, never auto-correct money.
 - **Data lifecycle**: retention schedule for `customer_enc`, `inbound_events` payloads, and `payment_events`.
+
+---
+
+## 10. Running Several Projects From This Template
+
+- **Run the method in section 1 per domain, not per project.** Copy sections 2 and 4 into each domain's PR.
+- **Migration numbering.** The initial baseline (`00001`–`00005`) is sequential; all subsequent template and project migrations use UTC timestamp versions (`YYYYMMDDHHMMSS_<name>.sql`) via `make new-feature` or `make new-migration` (see ADR 0008). This prevents collisions when pulling upstream template migrations or merging parallel branches.
+- **Enterprise authentication.** Keep `internal/users` + PASETO `v4.local` for standalone products. For enterprise SSO (Entra ID, Okta, Keycloak, Auth0), validate JWTs against the provider's JWKS and map claims into `auth.Principal` so `auth.RequireAuth` and service authorization stay unchanged (ADR 0008).
+- **Domain code stays in `project` paths** (`internal/<feature>`, `internal/integrations/<vendor>`). Edit `internal/app` and `internal/config` freely, keeping each domain's wiring in a single contiguous block so `make template-diff` merges stay small.
+- **Cross-project reuse.** If two projects need the same integration (for example the payment provider), extract it into its own module and import it. Do not copy it between repositories.
+- **Verify the `uuid` and keyset advice above against your list endpoints.** The `orders` example pages on a `bigint` identity; domains with UUID keys must page on `(created_at, id)`.

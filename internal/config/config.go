@@ -76,6 +76,18 @@ type Config struct {
 	DBMinConns        int32         `env:"DB_MIN_CONNS" envDefault:"0"`
 	DBMaxConnLifetime time.Duration `env:"DB_MAX_CONN_LIFETIME" envDefault:"30m"`
 	DBMaxConnIdleTime time.Duration `env:"DB_MAX_CONN_IDLE_TIME" envDefault:"5m"`
+
+	// Session guards sent to Postgres on connect; 0 disables. Set all to 0
+	// behind PgBouncer in transaction mode unless it ignores startup parameters.
+	DBStatementTimeout time.Duration `env:"DB_STATEMENT_TIMEOUT" envDefault:"30s"`
+	DBLockTimeout      time.Duration `env:"DB_LOCK_TIMEOUT" envDefault:"5s"`
+	DBIdleInTxTimeout  time.Duration `env:"DB_IDLE_IN_TX_TIMEOUT" envDefault:"30s"`
+
+	// Retention windows for the periodic worker sweep. RETENTION_INBOUND_EVENTS
+	// must exceed the longest webhook sender retry window.
+	RetentionIdempotencyKeys   time.Duration `env:"RETENTION_IDEMPOTENCY_KEYS" envDefault:"24h"`
+	RetentionInboundEvents     time.Duration `env:"RETENTION_INBOUND_EVENTS" envDefault:"720h"`
+	RetentionRefreshTokenGrace time.Duration `env:"RETENTION_REFRESH_TOKEN_GRACE" envDefault:"24h"`
 }
 
 // Load reads the process environment, applies defaults, and validates every
@@ -174,6 +186,12 @@ func (c Config) validate() error {
 	}
 	if c.DBMaxConns < 0 || c.DBMinConns < 0 || (c.DBMaxConns > 0 && c.DBMinConns > c.DBMaxConns) {
 		add("DB_MAX_CONNS/DB_MIN_CONNS: must be non-negative and min must not exceed max")
+	}
+	if c.RetentionIdempotencyKeys <= 0 || c.RetentionInboundEvents <= 0 || c.RetentionRefreshTokenGrace < 0 {
+		add("RETENTION_*: idempotency and inbound windows must be positive and the refresh grace must not be negative")
+	}
+	if c.DBStatementTimeout < 0 || c.DBLockTimeout < 0 || c.DBIdleInTxTimeout < 0 {
+		add("DB_STATEMENT_TIMEOUT/DB_LOCK_TIMEOUT/DB_IDLE_IN_TX_TIMEOUT: must not be negative")
 	}
 	if c.OtelEndpoint != "" {
 		u, err := url.Parse(c.OtelEndpoint)
