@@ -14,14 +14,15 @@ edits in downstream projects carries an "Upgrade notes" entry.
 - `queue.WorkerConfig.PeriodicJobs` passes River periodic jobs to the worker client (leader-elected across replicas).
 - Hourly periodic retention sweep (`maintenance.retention` in `internal/app/retention.go`) pruning `idempotency_keys` (`RETENTION_IDEMPOTENCY_KEYS`), `refresh_tokens` (`RETENTION_REFRESH_TOKEN_GRACE`), and `inbound_events` (`RETENTION_INBOUND_EVENTS`), plus `20261019000000_inbound_events_received_at_idx.sql`.
 - `make new-migration name=<x>` for UTC timestamped goose SQL migrations, and composite keyset index/query generation in `make new-feature`.
-- ADR 0008 covering retention sweeps, UTC timestamp migrations, session guards, and the enterprise OIDC/JWKS authentication path.
+- `store.InTenantTx` and `store.InTenantTxOptions` (`internal/platform/store/tenancy.go`) for PgBouncer-safe PostgreSQL Row-Level Security (`SET LOCAL app.tenant_id`), plus `templates/modules/tenancy/apply.sh` (`make add-module NAME=tenancy`).
+- ADR 0008 covering retention sweeps, UTC timestamp migrations, session guards, multi-tenant RLS, and the enterprise OIDC/JWKS authentication path.
 
 ### Changed
 
 - `make cover` runs unit and integration tests together and fails below `COVER_MIN` (default 70%); CI integration job uses it.
 - CI tools (`golangci-lint`, `govulncheck`, `sqlc`, `goose`) are pinned instead of `@latest`.
 - Dockerfile pins `golang:1.26-alpine`, `alpine:3.22` and uses `GOTOOLCHAIN=local`.
-- `docs/DOMAIN_BLUEPRINT.md`: section 6 is now a status table (done versus open gaps found in review) and section 10 covers running several projects from the template. Corrected the list cursor (keyset on `created_at, id`) and noted that `platform/webhook` has no GET handshake.
+- `docs/DOMAIN_BLUEPRINT.md`: added section 5.1 detailing RBAC and multi-tenant RLS responsibilities across HTTP, domain, service, and repository layers; section 6 is now a status table (done versus open gaps found in review) and section 10 covers running several projects from the template. Corrected the list cursor (keyset on `created_at, id`) and noted that `platform/webhook` has no GET handshake.
 - Removed unimplemented `ENABLED_FEATURES` and `internal/app/legacy.go` references from `AGENTS.md` and `docs/PORTING.md`.
 
 ### Fixed

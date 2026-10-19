@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -185,6 +186,102 @@ func TestInTxOptionsAppliesIsolation(t *testing.T) {
 	}
 	if level != "serializable" {
 		t.Errorf("isolation = %q, want serializable", level)
+	}
+}
+
+func TestInTenantTxEnforcesRLSAndClearsOnCommit(t *testing.T) {
+	pool := testDB.Pool(t)
+	ctx := context.Background()
+
+	_, err := pool.Exec(ctx, `
+		CREATE TABLE rls_probe (
+			id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+			tenant_id uuid NOT NULL,
+			label     text NOT NULL
+		);
+		ALTER TABLE rls_probe ENABLE ROW LEVEL SECURITY;
+		ALTER TABLE rls_probe FORCE ROW LEVEL SECURITY;
+		CREATE POLICY rls_probe_tenant_isolation ON rls_probe
+			USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+			WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+		DO $$
+		BEGIN
+			IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rls_probe_app') THEN
+				CREATE ROLE rls_probe_app NOSUPERUSER NOBYPASSRLS;
+			END IF;
+		END $$;
+		GRANT ALL ON TABLE rls_probe TO rls_probe_app;
+	`)
+	if err != nil {
+		t.Fatalf("setup RLS table: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DROP TABLE IF EXISTS rls_probe`)
+	})
+
+	tenantA := uuid.New()
+	tenantB := uuid.New()
+
+	// Insert one row for tenantA and one row for tenantB under the non-superuser role.
+	for _, tc := range []struct {
+		tenant uuid.UUID
+		label  string
+	}{
+		{tenantA, "alpha"},
+		{tenantB, "bravo"},
+	} {
+		err := store.InTenantTx(ctx, pool, tc.tenant, func(ctx context.Context, tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `SET LOCAL ROLE rls_probe_app`); err != nil {
+				return err
+			}
+			_, err := tx.Exec(ctx, `INSERT INTO rls_probe (tenant_id, label) VALUES ($1, $2)`, tc.tenant, tc.label)
+			return err
+		})
+		if err != nil {
+			t.Fatalf("insert for %s: %v", tc.label, err)
+		}
+	}
+
+	// Tenant A must see only its own row even with an unqualified SELECT.
+	var labels []string
+	err = store.InTenantTxOptions(ctx, pool, tenantA, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SET LOCAL ROLE rls_probe_app`); err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, `SELECT label FROM rls_probe`)
+		if err != nil {
+			return err
+		}
+		labels, err = pgx.CollectRows(rows, pgx.RowTo[string])
+		return err
+	})
+	if err != nil {
+		t.Fatalf("query for tenantA: %v", err)
+	}
+	if len(labels) != 1 || labels[0] != "alpha" {
+		t.Fatalf("tenantA visible labels = %v, want [alpha]", labels)
+	}
+
+	// Cross-tenant INSERT (tenantA writing a row tagged with tenantB) must be blocked by RLS (42501).
+	err = store.InTenantTx(ctx, pool, tenantA, func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SET LOCAL ROLE rls_probe_app`); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO rls_probe (tenant_id, label) VALUES ($1, 'spoof')`, tenantB)
+		return err
+	})
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "42501" {
+		t.Fatalf("cross-tenant insert err = %v, want SQLSTATE 42501 (insufficient_privilege)", err)
+	}
+
+	// After InTenantTx completes, app.tenant_id must not leak onto the pooled connection.
+	var leaked string
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(current_setting('app.tenant_id', true), '')`).Scan(&leaked); err != nil {
+		t.Fatalf("check leaked setting: %v", err)
+	}
+	if leaked != "" {
+		t.Errorf("app.tenant_id after commit = %q, want empty", leaked)
 	}
 }
 

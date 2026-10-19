@@ -340,6 +340,20 @@ Copy into the PR description.
 | Reconciliation | Daily job comparing local state to provider reports | Mandatory for money flows |
 | Scheduled work | River periodic jobs | Never bare goroutines |
 | Soft deletion/retention | Retention job per table | Define TTL per PII table |
+| Multi-tenant isolation (RLS) | Service scoping + `store.InTenantTx` (`SET LOCAL app.tenant_id`) | Defense-in-depth with Postgres `FORCE ROW LEVEL SECURITY` |
+
+### 5.1 Where Authorization (RBAC) and Tenancy (RLS) Live Across Layers
+
+Every domain feature enforces access control and tenant isolation across four explicit boundaries so no single mistake leaks data:
+
+| Layer | Responsibility | How the domain is made aware |
+|---|---|---|
+| **1. HTTP Boundary (`handler.go` / `app/router.go`)** | Coarse authentication and route-level role gating | Attach `auth.RequireAuth` (or `auth.HumaRequireAuth`) and, for admin-only routes, `auth.RequireRole(auth.RoleAdmin)`. Extract `principal, ok := auth.PrincipalFrom(ctx)` and pass caller identity (`Actor` / `Principal` or `userID`, `role`, `tenantID`) into the service call. |
+| **2. Domain (`<feature>.go`)** | Pure ownership and state rules | Entities carry explicit `UserID uuid.UUID` (owner) and, in multi-tenant domains, `TenantID uuid.UUID`. Domain helpers validate whether an actor may transition or mutate the entity without importing HTTP or SQL packages. |
+| **3. Service (`service.go`)** | Authoritative business authorization (Rule 14) | **Primary enforcement point.** Services check `role == auth.RoleAdmin` or `entity.UserID == callerID` (and `entity.TenantID == callerTenantID`). Return `ErrNotFound` (404) rather than `ErrForbidden` (403) when a non-admin requests another user's or tenant's resource by ID so existence is never leaked. |
+| **4. Repository & Postgres (`repo.go` + RLS)** | Query scoping + hardware-enforced Row-Level Security | Queries always filter by `WHERE tenant_id = sqlc.arg(tenant_id)` (so composite indexes `(tenant_id, ...)` are used). In multi-tenant projects, wrap repository calls in `store.InTenantTx(ctx, r.pool, tenantID, ...)` and enable RLS via `make add-module NAME=tenancy TABLE=<feature>`. `InTenantTx` executes `SELECT set_config('app.tenant_id', $1, true)` (`SET LOCAL`), which Postgres clears automatically on `COMMIT`/`ROLLBACK` (100% safe with PgBouncer transaction pooling). |
+
+> **Runtime requirement for RLS:** PostgreSQL `SUPERUSER` and `BYPASSRLS` roles bypass Row-Level Security even with `FORCE ROW LEVEL SECURITY`. Ensure the application's runtime `DATABASE_URL` connects as a role with `NOSUPERUSER NOBYPASSRLS`.
 
 ---
 
@@ -358,6 +372,7 @@ Status as of template 0.4.1. Each open item needs an ADR if adopted.
 | DB session guards (`DB_STATEMENT_TIMEOUT`, `DB_LOCK_TIMEOUT`, `DB_IDLE_IN_TX_TIMEOUT`) | `store.PoolConfig` |
 | Periodic jobs and leader-elected hourly retention (`idempotency_keys`, `refresh_tokens`, `inbound_events`) | `queue.WorkerConfig.PeriodicJobs`, `internal/app/retention.go` |
 | UTC timestamp migrations (`make new-feature`, `make new-migration`) | `Makefile`, `cmd/scaffold`, `docs/adr/0008-retention-migrations-and-enterprise-auth.md` |
+| Multi-tenant RLS transaction helper (`store.InTenantTx`, `store.InTenantTxOptions`) & migration generator (`make add-module NAME=tenancy`) | `internal/platform/store/tenancy.go`, `templates/modules/tenancy` |
 | Coverage floor | `make cover` |
 
 **Open: platform gaps found in review**
@@ -371,7 +386,6 @@ Status as of template 0.4.1. Each open item needs an ADR if adopted.
 | P1 | Rate limiter is in-process | Adopt `shared-ratelimit` before running more than one replica |
 | P1 | No audit log feature | Append-only `audit_events` for admin and security actions |
 | P1 | PII/field-level encryption helper | A platform package once two features need it (rule: not before) |
-| P2 | Tenancy | `tenancy` module before the first multi-tenant customer; retrofitting is costly |
 | P2 | Cache | None needed yet; add Redis only with measured need |
 | P2 | Table growth | Partition `inbound_events`, `payment_events` and `idempotency_keys` by time at tens of millions of rows; retention jobs first |
 | P2 | Read scaling | Read replica routing for list and reporting endpoints; keep writes and webhooks on primary |
