@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 ENV GOTOOLCHAIN=local
 WORKDIR /src
 
@@ -13,7 +13,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/api ./c
  && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/seed ./cmd/seed
 
 # Migration image: `docker build --target migrate`. Runs goose against /migrations.
-FROM golang:1.26-alpine AS goose
+FROM golang:1.27-alpine AS goose
 ENV GOTOOLCHAIN=local
 ARG GOOSE_VERSION=v3.29.0
 RUN CGO_ENABLED=0 go install -tags='no_clickhouse no_libsql no_mssql no_mysql no_sqlite3 no_vertica no_ydb' -trimpath -ldflags="-s -w" github.com/pressly/goose/v3/cmd/goose@${GOOSE_VERSION}
