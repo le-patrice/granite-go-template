@@ -61,7 +61,7 @@ You can initialize a new repository from `granite-go` using either Go's official
 
 ```bash
 go install golang.org/x/tools/cmd/gonew@latest
-gonew github.com/your-org/granite-go github.com/acme/billing-api
+gonew github.com/le-patrice/granite-go-template github.com/acme/billing-api
 cd billing-api
 make init
 ```
@@ -69,7 +69,7 @@ make init
 #### Option B: Via `git clone` (Interactive or One-Command CLI)
 
 ```bash
-git clone https://github.com/your-org/granite-go billing-api
+git clone https://github.com/le-patrice/granite-go-template billing-api
 cd billing-api
 
 # Interactive Copier-style prompt (asks for module path, app name, and examples=keep|strip):
