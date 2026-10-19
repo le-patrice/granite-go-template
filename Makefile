@@ -48,9 +48,10 @@ WORKER_PORT ?= 8081
 BIN_DIR     ?= bin
 APP_IMAGE   ?= app:local
 MIGRATE_IMAGE ?= app-migrate:local
-APP_COMPOSE = $(COMPOSE) --profile app
+APP_COMPOSE  = $(COMPOSE) --profile app
+EDGE_COMPOSE = $(COMPOSE) --profile app --profile edge
 
-.PHONY: help up down logs setup dev check build build-images stack stack-down stack-logs ps health metrics \
+.PHONY: help up down logs setup dev check build build-images stack stack-edge stack-down stack-logs ps health metrics \
 	db-shell db-backup down-volumes clean prune stats logs-api logs-worker migrate migrate-verify sqlc run-api run-worker seed-admin \
 	test test-integration lint arch-check vuln new-feature new-migration init strip-examples \
 	template-diff add-module perf scaffold-smoke openapi openapi-check cover
@@ -109,8 +110,13 @@ stack: ## Build images and run Postgres, migrations, api, worker in containers
 	$(APP_COMPOSE) up -d --build --wait api worker
 	@echo -e "$(GREEN)Stack running.$(NC) $(CYAN)API docs:$(NC) http://localhost:$(API_PORT)/docs  $(CYAN)Worker probes:$(NC) http://localhost:$(WORKER_PORT)/readyz"
 
+stack-edge: ## Run full stack with Traefik and Cloudflare Tunnel (requires CLOUDFLARE_TUNNEL_TOKEN)
+	@$(LOADENV) : "$${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required in .env or environment}"; \
+	$(EDGE_COMPOSE) up -d --build --wait api worker traefik cloudflared
+	@echo -e "$(GREEN)Edge stack running (Cloudflare Tunnel -> Traefik -> API).$(NC)"
+
 stack-down: ## Stop the full container stack (keeps data volume)
-	$(APP_COMPOSE) down
+	$(EDGE_COMPOSE) down
 
 stack-logs: ## Tail api and worker container logs
 	$(APP_COMPOSE) logs -f api worker

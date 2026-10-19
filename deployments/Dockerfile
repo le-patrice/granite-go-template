@@ -16,7 +16,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/api ./c
 FROM golang:1.26-alpine AS goose
 ENV GOTOOLCHAIN=local
 ARG GOOSE_VERSION=v3.29.0
-RUN CGO_ENABLED=0 go install github.com/pressly/goose/v3/cmd/goose@${GOOSE_VERSION}
+RUN CGO_ENABLED=0 go install -tags='no_clickhouse no_libsql no_mssql no_mysql no_sqlite3 no_vertica no_ydb' -trimpath -ldflags="-s -w" github.com/pressly/goose/v3/cmd/goose@${GOOSE_VERSION}
 
 FROM alpine:3.22 AS migrate
 RUN adduser -D -u 65532 nonroot
