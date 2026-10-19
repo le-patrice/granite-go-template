@@ -1,4 +1,4 @@
-# AGENTS.md: {{APP_NAME}}
+# AGENTS.md: granite-go ({{APP_NAME}})
 
 Guidance for any coding agent or contributor working in this repo. Read this first. When it conflicts with a quick idea, this file wins. If it is wrong, change it in a PR with an ADR.
 
