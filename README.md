@@ -175,7 +175,7 @@ All configuration is parsed from environment variables at startup, validated wit
 | `TRUSTED_PROXIES` | empty | Comma-separated proxy CIDRs allowed to supply `CF-Connecting-IP` / `X-Forwarded-For`. |
 | `WORKER_CONCURRENCY` / `WORKER_QUEUES` | `10` / empty | Per-replica worker concurrency or queue split (e.g. `default:10,webhooks:5`). |
 | `RETENTION_IDEMPOTENCY_KEYS` / `RETENTION_INBOUND_EVENTS` / `RETENTION_REFRESH_TOKEN_GRACE` | `24h` / `720h` / `24h` | Retention windows swept hourly by the leader-elected `maintenance.retention` worker. |
-| `PUBLIC_HOST` / `CLOUDFLARE_TUNNEL_TOKEN` | `localhost` / empty | Host rule and token used by `make stack-edge` (`traefik` + `cloudflared`). |
+| `TRAEFIK_HTTP_PORT` / `CLOUDFLARE_TUNNEL_TOKEN` | `8088` / empty | Local Traefik port and tunnel token used by `make stack-edge` (`traefik` + `cloudflared`). |
 
 ---
 

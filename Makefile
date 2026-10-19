@@ -106,14 +106,16 @@ build-images: ## Build the runtime and migrate container images
 	@$(LOADENV) $(APP_COMPOSE) build
 	@echo -e "$(GREEN)Images built: $(APP_IMAGE), $(MIGRATE_IMAGE)$(NC)"
 
-stack: ## Build images and run Postgres, migrations, api, worker in containers
+stack: ## Build images and run Postgres, migrations, seed, api, worker in containers
+	@if [ ! -f .env ]; then echo -e "$(YELLOW)Creating .env from .env.example...$(NC)"; cp .env.example .env; fi
 	@$(LOADENV) $(APP_COMPOSE) up -d --build --wait api worker
-	@echo -e "$(GREEN)Stack running.$(NC) $(CYAN)API docs:$(NC) http://localhost:$(API_PORT)/docs  $(CYAN)Worker probes:$(NC) http://localhost:$(WORKER_PORT)/readyz"
+	@echo -e "$(GREEN)Stack running (migrated + admin seeded).$(NC) $(CYAN)API docs:$(NC) http://localhost:$(API_PORT)/docs  $(CYAN)Worker probes:$(NC) http://localhost:$(WORKER_PORT)/readyz"
 
 stack-edge: ## Run full stack with Traefik and Cloudflare Tunnel (requires CLOUDFLARE_TUNNEL_TOKEN)
+	@if [ ! -f .env ]; then echo -e "$(YELLOW)Creating .env from .env.example...$(NC)"; cp .env.example .env; fi
 	@$(LOADENV) : "$${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required in .env or environment}"; \
 	$(EDGE_COMPOSE) up -d --build --wait api worker traefik cloudflared
-	@echo -e "$(GREEN)Edge stack running (Cloudflare Tunnel -> Traefik -> API).$(NC)"
+	@echo -e "$(GREEN)Edge stack running (migrated + admin seeded, Cloudflare Tunnel -> Traefik -> API).$(NC)"
 
 stack-down: ## Stop the full container stack (keeps data volume)
 	@$(LOADENV) $(EDGE_COMPOSE) down

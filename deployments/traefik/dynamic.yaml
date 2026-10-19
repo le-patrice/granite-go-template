@@ -1,0 +1,16 @@
+# Dynamic routing configuration for Traefik (edge profile).
+# Uses the file provider instead of /var/run/docker.sock so it works on
+# Docker Engine 29+ (MinAPI >= 1.40) and rootless Podman without host socket access.
+http:
+  routers:
+    api:
+      rule: "PathPrefix(`/`) && !PathPrefix(`/metrics`)"
+      entryPoints:
+        - web
+      service: api
+
+  services:
+    api:
+      loadBalancer:
+        servers:
+          - url: "http://api:8080"

@@ -39,9 +39,21 @@ services:
       AUTH_TOKEN_KEY: ${AUTH_TOKEN_KEY:-000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f}
       WEBHOOK_ACME_SECRET: ${WEBHOOK_ACME_SECRET:-local-only-webhook-secret}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12,10.0.0.0/8,192.168.0.0/16,127.0.0.1/32}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@example.com}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-change-me-local-1234}
       DOCS_ENABLED: "true"
     depends_on:
       migrate: {condition: service_completed_successfully}
+    restart: "no"
+
+  seed:
+    profiles: [app]
+    image: app:local
+    build: *appbuild
+    entrypoint: ["/bin/seed"]
+    environment: *appenv
+    depends_on:
+      river-migrate: {condition: service_completed_successfully}
     restart: "no"
 
   api:
@@ -52,13 +64,8 @@ services:
     environment: *appenv
     ports:
       - "127.0.0.1:8080:8080"
-    labels:
-      traefik.enable: "true"
-      traefik.http.routers.api.rule: "Host(`${PUBLIC_HOST:-localhost}`) && !PathPrefix(`/metrics`)"
-      traefik.http.routers.api.entrypoints: "web"
-      traefik.http.services.api.loadbalancer.server.port: "8080"
     depends_on:
-      river-migrate: {condition: service_completed_successfully}
+      seed: {condition: service_completed_successfully}
     restart: unless-stopped
 
   worker:
@@ -70,24 +77,25 @@ services:
     ports:
       - "127.0.0.1:8081:8081"
     depends_on:
-      river-migrate: {condition: service_completed_successfully}
+      seed: {condition: service_completed_successfully}
     restart: unless-stopped
 
   # --- Edge ingress (profile "edge"): make stack-edge ---------------------------
-  # Routes Cloudflare Tunnel -> Traefik -> api without exposing public host ports.
+  # Routes Cloudflare Tunnel -> Traefik -> api without exposing public host ports
+  # or mounting the privileged Docker socket.
   traefik:
     profiles: [edge]
-    image: traefik:v3.3
+    image: traefik:v3.6.21
     command:
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
+      - "--providers.file.filename=/etc/traefik/dynamic.yaml"
+      - "--providers.file.watch=true"
       - "--entrypoints.web.address=:80"
-      - "--entrypoints.web.forwardedHeaders.trustedIPs=172.16.0.0/12,10.0.0.0/8,192.168.0.0/16"
+      - "--entrypoints.web.forwardedHeaders.trustedIPs=172.16.0.0/12,10.0.0.0/8,192.168.0.0/16,127.0.0.1/32"
       - "--ping=true"
     ports:
       - "127.0.0.1:${TRAEFIK_HTTP_PORT:-8088}:80"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/dynamic.yaml:/etc/traefik/dynamic.yaml:ro
     security_opt:
       - no-new-privileges:true
     healthcheck:
@@ -101,7 +109,7 @@ services:
 
   cloudflared:
     profiles: [edge]
-    image: cloudflare/cloudflared:2025.2.1
+    image: cloudflare/cloudflared:2026.10.1
     command: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "run"]
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}

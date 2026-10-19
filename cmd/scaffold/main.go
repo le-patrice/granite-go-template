@@ -214,9 +214,10 @@ func runInit(args []string) error {
 			return err
 		}
 
-		// Format files and run go mod tidy
+		// Format files, regenerate openapi.yaml, and run go mod tidy
 		_ = runCmd(context.Background(), "gofmt", "-w", ".")
 		_ = runCmd(context.Background(), "go", "mod", "tidy")
+		_ = runCmd(context.Background(), "go", "run", "./cmd/openapi", "-o", "api/openapi.yaml")
 	}
 
 	printlnOut("Initialization complete.")
@@ -325,11 +326,12 @@ func executeStripExamples(root string, dryRun bool) error {
 		}
 	}
 
-	// 4. Format files, regenerate sqlc and go mod tidy
+	// 4. Format files, regenerate sqlc, openapi.yaml, and go mod tidy
 	if !dryRun {
 		_ = runCmd(context.Background(), "gofmt", "-w", ".")
 		_ = runCmd(context.Background(), "sqlc", "generate")
 		_ = runCmd(context.Background(), "go", "mod", "tidy")
+		_ = runCmd(context.Background(), "go", "run", "./cmd/openapi", "-o", "api/openapi.yaml")
 	}
 
 	return nil
