@@ -113,14 +113,14 @@ jobs:
       - name: Build migrate image
         run: docker build -f deployments/Dockerfile --target migrate -t app-migrate:ci .
       - name: Scan runtime image
-        uses: aquasecurity/trivy-action@v0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: app:ci
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
       - name: Scan migrate image
-        uses: aquasecurity/trivy-action@v0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: app-migrate:ci
           severity: HIGH,CRITICAL
