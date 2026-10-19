@@ -1,4 +1,4 @@
-# granite-go ({{APP_NAME}})
+# granite-go 
 
 <p align="center">
   <em>Enterprise-grade Go service template powered by <code>net/http</code> (Go 1.22+ ServeMux), <code>pgx/v5</code> + <code>sqlc</code>, River Transactional Outbox, Huma v2 (OpenAPI 3.1), PASETO v4 + Argon2id, OpenTelemetry, Traefik v3 + Cloudflare Tunnel, and Kustomize.</em>
@@ -208,7 +208,7 @@ sqlc diff && go mod tidy   # both must produce zero diff
 
 The documentation suite under [`docs/`](docs/) is GitBook-compatible ([`.gitbook.yaml`](.gitbook.yaml), [`docs/SUMMARY.md`](docs/SUMMARY.md)):
 
-* **[Introduction](docs/README.md)**: Overview of `granite-go ({{APP_NAME}})` and reading order.
+* **[Introduction](docs/README.md)**: Overview of `granite-go` and reading order.
 * **[Scaffolding & Lifecycle Guide](docs/SCAFFOLDING.md)**: Step-by-step project initialization (`gonew` / `make init`), stripping examples, feature generation, and `template-diff`.
 * **[Domain Blueprint](docs/DOMAIN_BLUEPRINT.md)**: Authoritative 10-part standard for designing and wiring business domains, RBAC/RLS boundaries, and a worked WhatsApp payments architecture.
 * **[Architecture Specification](docs/ARCHITECTURE.md)**: Package boundaries, dependency rules, request lifecycle, and transactional outbox mechanics.

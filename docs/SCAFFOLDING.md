@@ -1,6 +1,6 @@
-# Scaffolding Guide — granite-go ({{APP_NAME}})
+# Scaffolding Guide — granite-go 
 
-This guide describes how to scaffold new projects from `granite-go ({{APP_NAME}})`, manage examples, generate new features and migrations, and pull upstream template updates.
+This guide describes how to scaffold new projects from `granite-go`, manage examples, generate new features and migrations, and pull upstream template updates.
 
 ## 1. Quick Start
 
