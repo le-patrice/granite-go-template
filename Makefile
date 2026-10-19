@@ -103,11 +103,11 @@ build: ## Compile api, worker, seed into ./bin
 
 build-images: ## Build the runtime and migrate container images
 	@echo -e "$(BLUE)Building container images...$(NC)"
-	$(APP_COMPOSE) build
+	@$(LOADENV) $(APP_COMPOSE) build
 	@echo -e "$(GREEN)Images built: $(APP_IMAGE), $(MIGRATE_IMAGE)$(NC)"
 
 stack: ## Build images and run Postgres, migrations, api, worker in containers
-	$(APP_COMPOSE) up -d --build --wait api worker
+	@$(LOADENV) $(APP_COMPOSE) up -d --build --wait api worker
 	@echo -e "$(GREEN)Stack running.$(NC) $(CYAN)API docs:$(NC) http://localhost:$(API_PORT)/docs  $(CYAN)Worker probes:$(NC) http://localhost:$(WORKER_PORT)/readyz"
 
 stack-edge: ## Run full stack with Traefik and Cloudflare Tunnel (requires CLOUDFLARE_TUNNEL_TOKEN)
@@ -116,19 +116,19 @@ stack-edge: ## Run full stack with Traefik and Cloudflare Tunnel (requires CLOUD
 	@echo -e "$(GREEN)Edge stack running (Cloudflare Tunnel -> Traefik -> API).$(NC)"
 
 stack-down: ## Stop the full container stack (keeps data volume)
-	$(EDGE_COMPOSE) down
+	@$(LOADENV) $(EDGE_COMPOSE) down
 
 stack-logs: ## Tail api and worker container logs
-	$(APP_COMPOSE) logs -f api worker
+	@$(LOADENV) $(APP_COMPOSE) logs -f api worker
 
 logs-api: ## Tail api container logs
-	$(APP_COMPOSE) logs -f api
+	@$(LOADENV) $(APP_COMPOSE) logs -f api
 
 logs-worker: ## Tail worker container logs
-	$(APP_COMPOSE) logs -f worker
+	@$(LOADENV) $(APP_COMPOSE) logs -f worker
 
 ps: ## List stack containers
-	$(APP_COMPOSE) ps
+	@$(LOADENV) $(EDGE_COMPOSE) ps
 
 health: ## Check API and worker readiness over HTTP
 	@curl -fsS http://localhost:$(API_PORT)/readyz >/dev/null && echo -e "$(GREEN)API ready$(NC)" || echo -e "$(RED)API not ready on :$(API_PORT)$(NC)"
@@ -138,17 +138,17 @@ metrics: ## Fetch Prometheus metrics from the API
 	@curl -s http://localhost:$(API_PORT)/metrics
 
 db-shell: ## Open psql on the local Postgres container
-	$(COMPOSE) exec postgres psql -U $(PG_USER) -d app
+	@$(LOADENV) $(COMPOSE) exec postgres psql -U $(PG_USER) -d app
 
 db-backup: ## Dump the local database to backups/ (gzip)
 	@mkdir -p backups
-	$(COMPOSE) exec -T postgres pg_dump -U $(PG_USER) app | gzip -9 > backups/db_$$(date +%Y%m%d_%H%M%S).sql.gz
+	@$(LOADENV) $(COMPOSE) exec -T postgres pg_dump -U $(PG_USER) app | gzip -9 > backups/db_$$(date +%Y%m%d_%H%M%S).sql.gz
 	@echo -e "$(GREEN)Backup saved in backups/$(NC)"
 
 down-volumes: ## Stop everything and DESTROY the local database volume
 	@echo -e "$(RED)$(BOLD)This deletes the local database volume.$(NC)"
 	@read -p "Proceed? [y/N] " -n 1 -r; echo ""; \
-	if [[ $$REPLY =~ ^[Yy]$$ ]]; then $(APP_COMPOSE) down -v; else echo "aborted"; fi
+	if [[ $$REPLY =~ ^[Yy]$$ ]]; then $(LOADENV) $(EDGE_COMPOSE) down -v; else echo "aborted"; fi
 
 stats: ## Container resource usage snapshot
 	@$(if $(DOCKER_BIN),docker,podman) stats --no-stream
@@ -160,13 +160,13 @@ prune: ## Prune stopped containers and dangling images
 	@$(if $(DOCKER_BIN),docker,podman) system prune -f
 
 up: ## Start local Postgres
-	$(COMPOSE) up -d --wait postgres
+	@$(LOADENV) $(COMPOSE) up -d --wait postgres
 
 down: ## Stop local Postgres
-	$(COMPOSE) down
+	@$(LOADENV) $(COMPOSE) down
 
 logs: ## Tail local Postgres container logs
-	$(COMPOSE) logs -f postgres
+	@$(LOADENV) $(COMPOSE) logs -f postgres
 
 migrate: ## Apply app and River migrations using the direct database URL
 	@$(LOADENV) : "$${DATABASE_URL:?DATABASE_URL is required}"; \
